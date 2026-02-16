@@ -173,6 +173,13 @@
   --shadow-2xl: var(--shadow-2xl);
 }
 
+@layer components {
+  .chat-message {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 60px;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

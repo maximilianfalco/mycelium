@@ -3,7 +3,7 @@ import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const mono = JetBrains_Mono({
-  variable: "--font-geist-mono",
+  variable: "--font-mono",
   subsets: ["latin"],
 });
 

@@ -70,7 +70,9 @@ export default function ProjectPage({
     setScanning(true);
     try {
       // Expand ~ to home directory
-      const expandedPath = scanPath.replace(/^~/, "/Users/maximilianwidjaya");
+      const home =
+        process.env.NEXT_PUBLIC_HOME_DIR || "/Users/maximilianwidjaya";
+      const expandedPath = scanPath.replace(/^~/, home);
       const results = await api.scan(expandedPath);
       setScanResults(results);
       setSelected(new Set());
@@ -325,7 +327,7 @@ export default function ProjectPage({
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`text-sm px-3 py-2 ${
+                className={`chat-message text-sm px-3 py-2 ${
                   m.role === "user"
                     ? "bg-accent/50 ml-12"
                     : "bg-card border border-border mr-12"
