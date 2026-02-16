@@ -93,6 +93,13 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 | Search | Stubbed |
 | Chat | Stubbed |
 
+## Git
+
+- Commits should be small and focused — one feature, fix, or change per commit
+- Do NOT bundle multiple unrelated changes into a single commit
+- Example of good commits: `feat: add project CRUD endpoints`, `feat: scaffold Next.js frontend`, `fix: handle null alias in source linking`
+- Example of bad commits: `feat: add entire backend and frontend` (too large, impossible to review)
+
 ## Key Conventions
 
 - `internal/` is a Go-enforced private package boundary — do not rename
