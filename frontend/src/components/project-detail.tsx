@@ -20,6 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { DebugTab } from "@/components/debug/debug-tab";
 
 export function ProjectDetail({
   id,
@@ -38,7 +39,7 @@ export function ProjectDetail({
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(
     initialIndexStatus,
   );
-  const [tab, setTab] = useState<"sources" | "chat">("sources");
+  const [tab, setTab] = useState<"sources" | "chat" | "debug">("sources");
 
   const [scanOpen, setScanOpen] = useState(false);
   const [scanPath, setScanPath] = useState("~/Desktop/Code");
@@ -188,6 +189,12 @@ export function ProjectDetail({
           onClick={() => setTab("chat")}
         >
           forage
+        </button>
+        <button
+          className={`pb-2 text-sm ${tab === "debug" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+          onClick={() => setTab("debug")}
+        >
+          spore lab
         </button>
       </div>
 
@@ -356,6 +363,8 @@ export function ProjectDetail({
           </div>
         </div>
       )}
+
+      {tab === "debug" && <DebugTab />}
     </div>
   );
 }

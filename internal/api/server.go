@@ -22,6 +22,44 @@ func init() {
 	})))
 }
 
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorDim    = "\033[2m"
+	colorBold   = "\033[1m"
+)
+
+func statusColor(code int) string {
+	switch {
+	case code >= 500:
+		return colorRed
+	case code >= 400:
+		return colorYellow
+	case code >= 300:
+		return colorCyan
+	default:
+		return colorGreen
+	}
+}
+
+func methodColor(method string) string {
+	switch method {
+	case "GET":
+		return colorGreen
+	case "POST":
+		return colorCyan
+	case "PUT", "PATCH":
+		return colorYellow
+	case "DELETE":
+		return colorRed
+	default:
+		return colorReset
+	}
+}
+
 func requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -29,12 +67,14 @@ func requestLogger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		slog.Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", ww.Status(),
-			"bytes", ww.BytesWritten(),
-			"duration", time.Since(start).String(),
+		status := ww.Status()
+		duration := time.Since(start)
+
+		fmt.Fprintf(os.Stdout, "%s%-7s%s %s %s%d%s %s%s%s\n",
+			methodColor(r.Method), r.Method, colorReset,
+			r.URL.Path,
+			statusColor(status), status, colorReset,
+			colorDim, duration, colorReset,
 		)
 	})
 }
@@ -55,6 +95,7 @@ func NewServer(pool *pgxpool.Pool, port string) *http.Server {
 	r.Mount("/projects", routes.ProjectRoutes(pool))
 	r.Post("/scan", routes.ScanHandler())
 	r.Mount("/search", routes.SearchRoutes())
+	r.Mount("/debug", routes.DebugRoutes())
 
 	return &http.Server{
 		Addr:    ":" + port,

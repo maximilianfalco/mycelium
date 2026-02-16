@@ -57,6 +57,90 @@ export interface ChatResponse {
   sources: Array<{ nodeId: string; filePath: string; qualifiedName: string }>;
 }
 
+export interface CrawlFile {
+  absPath: string;
+  relPath: string;
+  extension: string;
+  sizeBytes: number;
+}
+
+export interface CrawlResponse {
+  files: CrawlFile[];
+  stats: {
+    total: number;
+    skipped: number;
+    byExtension: Record<string, number>;
+  };
+}
+
+export interface ParseNode {
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  signature: string;
+  startLine: number;
+  endLine: number;
+  sourceCode: string;
+  docstring: string;
+  bodyHash: string;
+}
+
+export interface ParseEdge {
+  source: string;
+  target: string;
+  kind: string;
+}
+
+export interface ParseResponse {
+  nodes: ParseNode[];
+  edges: ParseEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    byKind: Record<string, number>;
+  };
+}
+
+export interface EmbedResponse {
+  vector: number[];
+  dimensions: number;
+  tokenCount: number;
+  model: string;
+  truncated: boolean;
+}
+
+export interface CompareResponse {
+  similarity: number;
+  tokenCount1: number;
+  tokenCount2: number;
+  dimensions: number;
+}
+
+export interface WorkspacePackage {
+  name: string;
+  path: string;
+  version: string;
+}
+
+export interface WorkspaceResponse {
+  workspaceType: string;
+  packageManager: string;
+  packages: WorkspacePackage[];
+  aliasMap: Record<string, string>;
+  tsconfigPaths: Record<string, string>;
+}
+
+export interface ChangesResponse {
+  isGitRepo: boolean;
+  currentCommit: string;
+  lastIndexedCommit: string;
+  isFullIndex: boolean;
+  addedFiles: string[];
+  modifiedFiles: string[];
+  deletedFiles: string[];
+  thresholdExceeded: boolean;
+}
+
 export const api = {
   projects: {
     list: () => request<Project[]>("/projects"),
@@ -121,5 +205,38 @@ export const api = {
       request<Array<{ role: string; content: string }>>(
         `/projects/${projectId}/chat/history`,
       ),
+  },
+
+  debug: {
+    crawl: (path: string) =>
+      request<CrawlResponse>("/debug/crawl", {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
+    parse: (filePath: string) =>
+      request<ParseResponse>("/debug/parse", {
+        method: "POST",
+        body: JSON.stringify({ filePath }),
+      }),
+    embedText: (text: string) =>
+      request<EmbedResponse>("/debug/embed-text", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      }),
+    compare: (text1: string, text2: string) =>
+      request<CompareResponse>("/debug/compare", {
+        method: "POST",
+        body: JSON.stringify({ text1, text2 }),
+      }),
+    workspace: (path: string) =>
+      request<WorkspaceResponse>("/debug/workspace", {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
+    changes: (path: string) =>
+      request<ChangesResponse>("/debug/changes", {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
   },
 };
