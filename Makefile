@@ -1,6 +1,7 @@
 .PHONY: build test lint run generate clean dev dev-stop db db-stop api frontend
 
 BINARY=myc
+AIR=$(shell go env GOPATH)/bin/air
 
 build:
 	go build -o $(BINARY) ./cmd/myc
@@ -35,13 +36,13 @@ api: build
 frontend:
 	cd frontend && npm run dev
 
-dev: build db
+dev: db
 	@echo "starting mycelium..."
-	@echo "api:      http://localhost:8080"
-	@echo "frontend: http://localhost:3000"
+	@echo "api:      http://localhost:8080 (live reload)"
+	@echo "frontend: http://localhost:3773"
 	@echo "press ctrl+c to stop"
 	@echo ""
 	@trap 'kill 0' EXIT; \
-		./$(BINARY) serve & \
+		$(AIR) & \
 		cd frontend && npm run dev & \
 		wait

@@ -34,5 +34,8 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Air (live reload)
+tmp/
+
 # Docker volumes
 pgdata/

@@ -1,0 +1,23 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/myc"
+  full_bin = "./tmp/myc serve"
+  cmd = "go build -o ./tmp/myc ./cmd/myc"
+  delay = 500
+  exclude_dir = ["tmp", "frontend", "node_modules", "tests"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go"]
+  kill_delay = 500
+  send_interrupt = true
+  stop_on_error = true
+
+[color]
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = true
