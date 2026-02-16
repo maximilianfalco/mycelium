@@ -91,13 +91,15 @@ export default function ProjectPage({
   };
 
   const handleLink = async () => {
-    for (const result of scanResults.filter((r) => selected.has(r.path))) {
-      try {
-        await api.sources.add(id, result.path, result.sourceType, true, result.name);
-      } catch {
-        // skip duplicates
-      }
-    }
+    await Promise.all(
+      scanResults
+        .filter((r) => selected.has(r.path))
+        .map((r) =>
+          api.sources
+            .add(id, r.path, r.sourceType, true, r.name)
+            .catch(() => {}),
+        ),
+    );
     setScanOpen(false);
     setScanResults([]);
     setSelected(new Set());
@@ -163,7 +165,9 @@ export default function ProjectPage({
           </button>
           <h1 className="text-lg font-medium">{project.name}</h1>
           {project.description && (
-            <p className="text-sm text-muted-foreground">{project.description}</p>
+            <p className="text-sm text-muted-foreground">
+              {project.description}
+            </p>
           )}
         </div>
         <Button variant="secondary" size="sm" onClick={handleDelete}>
@@ -256,7 +260,8 @@ export default function ProjectPage({
                     )}
                     {selected.size > 0 && (
                       <Button onClick={handleLink} className="w-full">
-                        link {selected.size} substrate{selected.size !== 1 ? "s" : ""}
+                        link {selected.size} substrate
+                        {selected.size !== 1 ? "s" : ""}
                       </Button>
                     )}
                   </div>
@@ -267,7 +272,9 @@ export default function ProjectPage({
 
           {sources.length === 0 ? (
             <div className="border border-dashed border-border py-12 text-center">
-              <p className="text-sm text-muted-foreground">no substrates linked</p>
+              <p className="text-sm text-muted-foreground">
+                no substrates linked
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
                 feed this colony with local repos or directories
               </p>
@@ -280,7 +287,9 @@ export default function ProjectPage({
                   className="flex items-center justify-between px-3 py-2 border border-border"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-sm truncate">{s.alias || s.path}</span>
+                    <span className="text-sm truncate">
+                      {s.alias || s.path}
+                    </span>
                     <Badge variant="outline" className="text-xs shrink-0">
                       {s.sourceType}
                     </Badge>
