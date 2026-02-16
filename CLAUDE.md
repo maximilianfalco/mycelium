@@ -100,6 +100,15 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 - Example of good commits: `feat: add project CRUD endpoints`, `feat: scaffold Next.js frontend`, `fix: handle null alias in source linking`
 - Example of bad commits: `feat: add entire backend and frontend` (too large, impossible to review)
 
+## Testing
+
+- Every feature or fix MUST be accompanied by tests before it's considered done
+- Backend (Go): write integration tests in `tests/integration/` for DB-touching code, unit tests alongside the package for pure logic
+- Frontend (Next.js): run `npm run build` after every change to catch type errors and build failures
+- Run `make test` after every feature to ensure nothing is broken
+- Test the happy path AND edge cases (empty inputs, missing data, duplicates, error responses)
+- Do NOT skip tests just because the feature "works manually" — if it's not tested, it's not done
+
 ## Key Conventions
 
 - `internal/` is a Go-enforced private package boundary — do not rename
