@@ -2,6 +2,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -82,7 +83,7 @@ export const api = {
       path: string,
       sourceType: string,
       isCode: boolean,
-      alias: string
+      alias: string,
     ) =>
       request<ProjectSource>(`/projects/${projectId}/sources`, {
         method: "POST",
@@ -104,7 +105,7 @@ export const api = {
     trigger: (projectId: string) =>
       request<{ status: string; jobId: string }>(
         `/projects/${projectId}/index`,
-        { method: "POST" }
+        { method: "POST" },
       ),
     status: (projectId: string) =>
       request<IndexStatus>(`/projects/${projectId}/index/status`),
@@ -118,7 +119,7 @@ export const api = {
       }),
     history: (projectId: string) =>
       request<Array<{ role: string; content: string }>>(
-        `/projects/${projectId}/chat/history`
+        `/projects/${projectId}/chat/history`,
       ),
   },
 };
