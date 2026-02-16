@@ -39,7 +39,9 @@ export function ProjectDetail({
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(
     initialIndexStatus,
   );
-  const [tab, setTab] = useState<"sources" | "chat" | "debug">("sources");
+  const [tab, setTab] = useState<"sources" | "chat" | "debug" | "graph">(
+    "sources",
+  );
 
   const [scanOpen, setScanOpen] = useState(false);
   const [scanPath, setScanPath] = useState("~/Desktop/Code");
@@ -195,6 +197,12 @@ export function ProjectDetail({
           onClick={() => setTab("debug")}
         >
           spore lab
+        </button>
+        <button
+          className={`pb-2 text-sm ${tab === "graph" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+          onClick={() => setTab("graph")}
+        >
+          mycelial map
         </button>
       </div>
 
@@ -365,6 +373,13 @@ export function ProjectDetail({
       )}
 
       {tab === "debug" && <DebugTab />}
+
+      {tab === "graph" && (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <img src="/icon.svg" alt="" width={64} height={64} className="mb-6" />
+          <p className="text-sm text-muted-foreground">coming soon</p>
+        </div>
+      )}
     </div>
   );
 }
