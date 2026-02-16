@@ -32,6 +32,7 @@ mycelium/
 │   │       ├── helpers.go       # writeJSON, writeError
 │   │       ├── projects.go      # Project/source CRUD endpoints
 │   │       ├── scan.go          # POST /scan (real filesystem scan)
+│   │       ├── debug.go         # Mocked — 6 POST /debug/* endpoints (spore lab)
 │   │       ├── indexing.go      # Stubbed — POST /index, GET /index/status
 │   │       ├── search.go        # Stubbed — semantic + structural search
 │   │       └── chat.go          # Stubbed — chat endpoint
@@ -45,7 +46,18 @@ mycelium/
 │       │   ├── page.tsx         # Colony list (project manager)
 │       │   └── projects/[id]/
 │       │       └── page.tsx     # Project detail (sources + chat tabs)
-│       ├── components/ui/       # shadcn components
+│       ├── components/
+│       │   ├── ui/              # shadcn components
+│       │   ├── colony-list.tsx  # Home page colony list
+│       │   ├── project-detail.tsx # Project detail (3 tabs: substrates, forage, spore lab)
+│       │   └── debug/           # Spore lab (debug) components
+│       │       ├── debug-tab.tsx             # Container: path inputs + stage cards
+│       │       ├── stage-card.tsx            # Reusable collapsible card with run button
+│       │       ├── crawl-output.tsx          # File list table + stats
+│       │       ├── parse-output.tsx          # Node cards + edge list
+│       │       ├── workspace-output.tsx      # Package tree + alias map
+│       │       ├── changes-output.tsx        # File diff lists
+│       │       └── embedding-playground.tsx  # Two textareas + compare + similarity
 │       └── lib/api.ts           # Typed API client for all endpoints
 ├── docker-compose.yml           # Postgres + pgvector (port 5433) + pgAdmin (port 5050)
 ├── Makefile                     # build, test, lint, dev, etc.
@@ -56,13 +68,15 @@ mycelium/
 ## Running
 
 ```bash
-make dev        # starts Postgres, Go API (8080), Next.js (3000) — Ctrl+C stops all
+make dev        # starts Postgres, Go API (8080) with air live reload, Next.js (3773) — Ctrl+C stops all
 make build      # compile Go binary
 make test       # run all tests
 make lint       # go vet
 ```
 
 Individual pieces: `make db`, `make api`, `make frontend`
+
+`make dev` uses [air](https://github.com/air-verse/air) for Go live reload — saving any `.go` file auto-rebuilds and restarts the API. Config in `.air.toml`. Air binary resolved via `$(go env GOPATH)/bin/air`.
 
 pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password: admin)
 
@@ -71,7 +85,7 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 | Service | Port |
 |---|---|
 | Go API | 8080 |
-| Next.js frontend | 3000 |
+| Next.js frontend | 3773 |
 | Postgres | 5433 (not 5432 — pendaki-postgres uses that) |
 | pgAdmin | 5050 |
 
@@ -89,6 +103,7 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 | Projects CRUD | Real (Postgres) |
 | Sources CRUD | Real (Postgres) |
 | POST /scan | Real (filesystem) |
+| Debug (spore lab) | Mocked (6 endpoints: crawl, parse, embed-text, compare, workspace, changes) |
 | Indexing | Stubbed |
 | Search | Stubbed |
 | Chat | Stubbed |
@@ -112,8 +127,9 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 ## Key Conventions
 
 - `internal/` is a Go-enforced private package boundary — do not rename
-- Fungi terminology (colony, substrate, decompose, forage) is UI/CLI only — backend code uses plain terms (project, source, index, search)
-- Structured logging via `log/slog` (not `log` or `fmt.Println`)
+- Fungi terminology (colony, substrate, decompose, forage, spore lab) is UI/CLI only — backend code uses plain terms (project, source, index, search, debug)
+- Request logging uses colored ANSI output (`fmt.Fprintf` with color codes), not slog — method/status colored by type (green GET, cyan POST, yellow PUT, red DELETE; green 2xx, yellow 4xx, red 5xx)
+- All other logging via `log/slog` (not `log` or `fmt.Println`)
 - Error handling: `if err != nil { return ..., fmt.Errorf("context: %w", err) }`
 - All DB functions take `context.Context` and `*pgxpool.Pool` as first two params
 - Route handlers use closure pattern: `func handler(pool) http.HandlerFunc`
@@ -132,3 +148,10 @@ Key files:
 - `Design/Query Engine.md` — query types, context assembly
 - `Design/Indexing Pipeline.md` — 7-stage pipeline
 - `Design/Monorepo & Workspace Support.md` — detection logic, alias maps
+- `Design/Debug Mode - Spore Lab.md` — debug tab design, mock→real swap table
+
+## Spore Lab (Debug Mode)
+
+The "spore lab" tab in the project detail view runs individual indexing pipeline stages on a test directory. All 6 debug endpoints (`/debug/*`) currently return mocked data matching the exact response shapes the real implementations will produce. When real implementations land (steps 2.1–2.8), each mock gets swapped individually — response shapes stay the same, only the data source changes. See `Design/Debug Mode - Spore Lab.md` for the mock→real swap table.
+
+Debug endpoints do NOT take `*pgxpool.Pool` — they're stateless mock handlers. When swapping to real implementations, the route functions will need the pool parameter added (same closure pattern as other routes).
