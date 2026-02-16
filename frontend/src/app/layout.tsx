@@ -23,6 +23,7 @@ export default function RootLayout({
         <div className="min-h-screen">
           <header className="border-b border-border px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
+              <img src="/icon.svg" alt="" width={20} height={20} />
               <span className="text-sm font-medium tracking-tight">
                 mycelium
               </span>

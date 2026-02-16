@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Background -->
+  <rect width="200" height="200" fill="#F5F0E8" rx="20"/>
+
+  <!-- Mushroom cap shadow -->
+  <ellipse cx="100" cy="108" rx="62" ry="18" fill="#5C3D2E" opacity="0.2"/>
+
+  <!-- Stem -->
+  <path d="M82 105 C80 105, 75 140, 78 160 C80 168, 88 172, 100 172 C112 172, 120 168, 122 160 C125 140, 120 105, 118 105" fill="#D4B896"/>
+
+  <!-- Stem highlight -->
+  <path d="M90 108 C89 108, 86 140, 88 158 C89 164, 93 166, 98 166 C96 166, 93 162, 92 155 C89 138, 91 110, 90 108" fill="#E8D5B8" opacity="0.6"/>
+
+  <!-- Stem lines -->
+  <path d="M88 115 C88 130, 86 150, 87 162" stroke="#C4A882" stroke-width="1" fill="none" opacity="0.4"/>
+  <path d="M112 115 C112 130, 114 150, 113 162" stroke="#C4A882" stroke-width="1" fill="none" opacity="0.4"/>
+
+  <!-- Cap -->
+  <path d="M30 108 C30 65, 55 35, 100 35 C145 35, 170 65, 170 108 C170 115, 160 118, 100 118 C40 118, 30 115, 30 108Z" fill="#8B5E3C"/>
+
+  <!-- Cap gradient overlay -->
+  <path d="M40 108 C40 72, 60 45, 100 45 C140 45, 160 72, 160 108 C160 112, 150 114, 100 114 C50 114, 40 112, 40 108Z" fill="#A0704C" opacity="0.6"/>
+
+  <!-- Cap top highlight -->
+  <path d="M60 80 C65 60, 85 48, 105 48 C120 48, 130 55, 138 68" stroke="none" fill="#B8845C" opacity="0.5"/>
+  <ellipse cx="92" cy="58" rx="22" ry="10" fill="#C4956A" opacity="0.4" transform="rotate(-10, 92, 58)"/>
+
+  <!-- Spots on cap -->
+  <ellipse cx="70" cy="75" rx="10" ry="8" fill="#F5F0E8" opacity="0.85" transform="rotate(-15, 70, 75)"/>
+  <ellipse cx="115" cy="68" rx="8" ry="7" fill="#F5F0E8" opacity="0.85" transform="rotate(10, 115, 68)"/>
+  <ellipse cx="92" cy="90" rx="7" ry="6" fill="#F5F0E8" opacity="0.85"/>
+  <ellipse cx="135" cy="90" rx="6" ry="5" fill="#F5F0E8" opacity="0.85" transform="rotate(15, 135, 90)"/>
+  <ellipse cx="55" cy="95" rx="6" ry="5" fill="#F5F0E8" opacity="0.85" transform="rotate(-10, 55, 95)"/>
+  <circle cx="148" cy="78" r="4" fill="#F5F0E8" opacity="0.7"/>
+  <circle cx="62" cy="64" r="3.5" fill="#F5F0E8" opacity="0.6"/>
+
+  <!-- Cap rim -->
+  <path d="M30 108 C30 115, 40 120, 100 120 C160 120, 170 115, 170 108" stroke="#6B4530" stroke-width="2" fill="none" opacity="0.3"/>
+
+  <!-- Under cap shadow -->
+  <path d="M82 118 C82 112, 90 110, 100 110 C110 110, 118 112, 118 118" fill="#6B4530" opacity="0.15"/>
+</svg>
