@@ -10,7 +10,7 @@ import (
 	ignore "github.com/sabhiram/go-gitignore"
 )
 
-const maxFileSizeBytes = 100 * 1024 // 100KB
+const defaultMaxFileSizeKB = 100
 
 var codeExtensions = map[string]bool{
 	".ts": true, ".tsx": true,
@@ -21,6 +21,7 @@ var codeExtensions = map[string]bool{
 var skipDirs = map[string]bool{
 	"node_modules": true, ".git": true, "dist": true, "build": true,
 	".next": true, "__pycache__": true, "vendor": true, "testdata": true,
+	"bower_components": true,
 }
 
 var skipFiles = map[string]bool{
@@ -50,7 +51,11 @@ type CrawlResult struct {
 // If isCode is true, only files with code extensions are included.
 // Respects .gitignore at all directory levels, skips common junk directories,
 // lockfiles, and files exceeding the size limit.
-func CrawlDirectory(rootPath string, isCode bool) (*CrawlResult, error) {
+func CrawlDirectory(rootPath string, isCode bool, maxFileSizeKB ...int) (*CrawlResult, error) {
+	maxBytes := int64(defaultMaxFileSizeKB) * 1024
+	if len(maxFileSizeKB) > 0 && maxFileSizeKB[0] > 0 {
+		maxBytes = int64(maxFileSizeKB[0]) * 1024
+	}
 	info, err := os.Stat(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat root path: %w", err)
@@ -155,7 +160,7 @@ func CrawlDirectory(rootPath string, isCode bool) (*CrawlResult, error) {
 			result.Stats.Skipped++
 			return nil
 		}
-		if fileInfo.Size() > maxFileSizeBytes {
+		if fileInfo.Size() > maxBytes {
 			result.Stats.Skipped++
 			return nil
 		}

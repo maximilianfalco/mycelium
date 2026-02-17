@@ -219,10 +219,10 @@ export const api = {
   },
 
   debug: {
-    crawl: (path: string) =>
+    crawl: (path: string, maxFileSizeKB?: number) =>
       request<CrawlResponse>("/debug/crawl", {
         method: "POST",
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path, maxFileSizeKB }),
       }),
     parse: (filePath: string) =>
       request<ParseResponse>("/debug/parse", {

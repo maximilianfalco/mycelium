@@ -17,12 +17,18 @@ export function SettingsPanel({
   projectId,
   settings,
   onSave,
+  open: externalOpen,
+  onOpenChange: externalOnOpenChange,
 }: {
   projectId: string;
   settings: ProjectSettings;
   onSave: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen ?? internalOpen;
+  const setOpen = externalOnOpenChange ?? setInternalOpen;
   const [maxFileSizeKB, setMaxFileSizeKB] = useState(
     settings.maxFileSizeKB ?? 100,
   );

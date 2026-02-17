@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maximilianfalco/mycelium/internal/indexer"
+	"github.com/maximilianfalco/mycelium/internal/indexer/detectors"
 	"github.com/maximilianfalco/mycelium/internal/indexer/parsers"
 )
 
@@ -30,7 +31,8 @@ func DebugRoutes() chi.Router {
 func debugCrawl() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Path string `json:"path"`
+			Path          string `json:"path"`
+			MaxFileSizeKB int    `json:"maxFileSizeKB"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -41,7 +43,7 @@ func debugCrawl() http.HandlerFunc {
 			return
 		}
 
-		result, err := indexer.CrawlDirectory(req.Path, true)
+		result, err := indexer.CrawlDirectory(req.Path, true, req.MaxFileSizeKB)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -177,22 +179,13 @@ func debugWorkspace() http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"workspaceType":  "monorepo",
-			"packageManager": "pnpm",
-			"packages": []map[string]any{
-				{"name": "@mycelium/core", "path": "packages/core", "version": "0.1.0"},
-				{"name": "@mycelium/web", "path": "apps/web", "version": "0.1.0"},
-				{"name": "@mycelium/cli", "path": "packages/cli", "version": "0.1.0"},
-			},
-			"aliasMap": map[string]string{
-				"@core/*": "packages/core/src/*",
-				"@web/*":  "apps/web/src/*",
-			},
-			"tsconfigPaths": map[string]string{
-				"@/*": "src/*",
-			},
-		})
+		result, err := detectors.DetectWorkspace(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
