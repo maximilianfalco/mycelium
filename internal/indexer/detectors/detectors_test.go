@@ -1,16 +1,17 @@
-package indexer
+package detectors
 
 import (
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 )
 
 func fixturesDir() string {
 	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures")
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "tests", "fixtures")
 }
 
 func TestDetectWorkspace_PnpmMonorepo(t *testing.T) {
@@ -416,6 +417,236 @@ func TestYarnWorkspacesObjectForm(t *testing.T) {
 	}
 	if info.Packages[0].Name != "@test/lib" {
 		t.Errorf("expected @test/lib, got %q", info.Packages[0].Name)
+	}
+}
+
+func TestDetectWorkspace_GoStandalone(t *testing.T) {
+	dir := filepath.Join(fixturesDir(), "go-standalone")
+	info, err := DetectWorkspace(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.WorkspaceType != "standalone" {
+		t.Errorf("expected workspace type 'standalone', got %q", info.WorkspaceType)
+	}
+
+	if info.PackageManager != "go" {
+		t.Errorf("expected package manager 'go', got %q", info.PackageManager)
+	}
+
+	if len(info.Packages) != 4 {
+		t.Fatalf("expected 4 packages (root + 3 sub-packages), got %d: %v", len(info.Packages), packageNames(info.Packages))
+	}
+
+	names := packageNames(info.Packages)
+	sort.Strings(names)
+	expected := []string{
+		"github.com/test/standalone",
+		"github.com/test/standalone/internal/auth",
+		"github.com/test/standalone/internal/db",
+		"github.com/test/standalone/pkg/utils",
+	}
+	for i, name := range expected {
+		if names[i] != name {
+			t.Errorf("expected package %q at index %d, got %q", name, i, names[i])
+		}
+	}
+
+	if _, ok := info.AliasMap["github.com/test/standalone"]; !ok {
+		t.Error("alias map missing root module")
+	}
+	if _, ok := info.AliasMap["github.com/test/standalone/internal/auth"]; !ok {
+		t.Error("alias map missing internal/auth")
+	}
+
+	var rootPkg PackageInfo
+	for _, pkg := range info.Packages {
+		if pkg.Name == "github.com/test/standalone" {
+			rootPkg = pkg
+			break
+		}
+	}
+	if rootPkg.EntryPoint != "main.go" {
+		t.Errorf("expected root package entry point 'main.go', got %q", rootPkg.EntryPoint)
+	}
+
+	if len(info.TSConfigPaths) != 0 {
+		t.Errorf("expected empty TSConfigPaths for Go project, got %d entries", len(info.TSConfigPaths))
+	}
+}
+
+func TestDetectWorkspace_GoWorkspace(t *testing.T) {
+	dir := filepath.Join(fixturesDir(), "go-workspace")
+	info, err := DetectWorkspace(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.WorkspaceType != "monorepo" {
+		t.Errorf("expected workspace type 'monorepo', got %q", info.WorkspaceType)
+	}
+
+	if info.PackageManager != "go" {
+		t.Errorf("expected package manager 'go', got %q", info.PackageManager)
+	}
+
+	if len(info.Packages) != 4 {
+		t.Fatalf("expected 4 packages (2 module roots + 2 sub-packages), got %d: %v", len(info.Packages), packageNames(info.Packages))
+	}
+
+	names := packageNames(info.Packages)
+	sort.Strings(names)
+	expected := []string{
+		"github.com/test/workspace/cmd/api",
+		"github.com/test/workspace/cmd/api/handlers",
+		"github.com/test/workspace/pkg/shared",
+		"github.com/test/workspace/pkg/shared/models",
+	}
+	for i, name := range expected {
+		if names[i] != name {
+			t.Errorf("expected package %q at index %d, got %q", name, i, names[i])
+		}
+	}
+
+	if info.AliasMap["github.com/test/workspace/cmd/api"] != filepath.Join("cmd", "api") {
+		t.Errorf("expected alias cmd/api, got %q", info.AliasMap["github.com/test/workspace/cmd/api"])
+	}
+	if info.AliasMap["github.com/test/workspace/pkg/shared/models"] != filepath.Join("pkg", "shared", "models") {
+		t.Errorf("expected alias pkg/shared/models, got %q", info.AliasMap["github.com/test/workspace/pkg/shared/models"])
+	}
+
+	var apiPkg PackageInfo
+	for _, pkg := range info.Packages {
+		if pkg.Name == "github.com/test/workspace/cmd/api" {
+			apiPkg = pkg
+			break
+		}
+	}
+	if apiPkg.EntryPoint != "main.go" {
+		t.Errorf("expected cmd/api entry point 'main.go', got %q", apiPkg.EntryPoint)
+	}
+}
+
+func TestParseGoWork(t *testing.T) {
+	dir := filepath.Join(fixturesDir(), "go-workspace")
+	dirs, goVersion, err := parseGoWork(filepath.Join(dir, "go.work"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if goVersion != "1.21" {
+		t.Errorf("expected go version '1.21', got %q", goVersion)
+	}
+
+	if len(dirs) != 2 {
+		t.Fatalf("expected 2 module dirs, got %d: %v", len(dirs), dirs)
+	}
+
+	sort.Strings(dirs)
+	if dirs[0] != "cmd/api" {
+		t.Errorf("expected first dir 'cmd/api', got %q", dirs[0])
+	}
+	if dirs[1] != "pkg/shared" {
+		t.Errorf("expected second dir 'pkg/shared', got %q", dirs[1])
+	}
+}
+
+func TestParseGoWork_SingleLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "go.work"), []byte("go 1.22\n\nuse ./services/api\n"), 0o644)
+
+	dirs, goVersion, err := parseGoWork(filepath.Join(tmpDir, "go.work"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if goVersion != "1.22" {
+		t.Errorf("expected go version '1.22', got %q", goVersion)
+	}
+
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir, got %d: %v", len(dirs), dirs)
+	}
+	if dirs[0] != "services/api" {
+		t.Errorf("expected dir 'services/api', got %q", dirs[0])
+	}
+}
+
+func TestParseGoMod(t *testing.T) {
+	dir := filepath.Join(fixturesDir(), "go-standalone")
+	modulePath, goVersion, err := parseGoMod(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if modulePath != "github.com/test/standalone" {
+		t.Errorf("expected module path 'github.com/test/standalone', got %q", modulePath)
+	}
+
+	if goVersion != "1.21" {
+		t.Errorf("expected go version '1.21', got %q", goVersion)
+	}
+}
+
+func TestParseGoMod_WithRequire(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "module github.com/test/complex\n\ngo 1.22\n\nrequire (\n\tgithub.com/some/dep v1.0.0\n)\n"
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(content), 0o644)
+
+	modulePath, goVersion, err := parseGoMod(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if modulePath != "github.com/test/complex" {
+		t.Errorf("expected module path 'github.com/test/complex', got %q", modulePath)
+	}
+	if goVersion != "1.22" {
+		t.Errorf("expected go version '1.22', got %q", goVersion)
+	}
+}
+
+func TestDetectWorkspace_MixedRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(`{"name": "mixed-repo", "version": "1.0.0"}`), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "package-lock.json"), nil, 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module github.com/test/mixed\n\ngo 1.21\n"), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "src", "index.ts"), nil, 0o644)
+
+	info, err := DetectWorkspace(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.PackageManager != "npm" {
+		t.Errorf("expected JS/TS to take priority, got package manager %q", info.PackageManager)
+	}
+
+	if info.Packages[0].Name != "mixed-repo" {
+		t.Errorf("expected JS package name 'mixed-repo', got %q", info.Packages[0].Name)
+	}
+}
+
+func TestDetectWorkspace_GoSkipsVendor(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module github.com/test/vendor-test\n\ngo 1.21\n"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n"), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "vendor", "github.com", "dep"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "vendor", "github.com", "dep", "dep.go"), []byte("package dep\n"), 0o644)
+
+	info, err := DetectWorkspace(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, pkg := range info.Packages {
+		if strings.Contains(pkg.Path, "vendor") {
+			t.Errorf("vendor directory should be skipped, found package at %q", pkg.Path)
+		}
 	}
 }
 

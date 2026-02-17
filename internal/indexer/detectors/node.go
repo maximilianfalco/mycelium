@@ -1,4 +1,4 @@
-package indexer
+package detectors
 
 import (
 	"encoding/json"
@@ -9,26 +9,21 @@ import (
 	"strings"
 )
 
-type WorkspaceInfo struct {
-	WorkspaceType  string            `json:"workspaceType"`
-	PackageManager string            `json:"packageManager"`
-	Packages       []PackageInfo     `json:"packages"`
-	AliasMap       map[string]string `json:"aliasMap"`
-	TSConfigPaths  map[string]string `json:"tsconfigPaths"`
-}
+// NodeDetector detects JS/TS workspaces (pnpm, yarn, npm, lerna).
+type NodeDetector struct{}
 
-type PackageInfo struct {
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-	Version    string `json:"version"`
-	EntryPoint string `json:"entryPoint"`
-}
+// Detect checks for JS/TS workspace config files and package.json.
+// Returns nil, nil if no JS/TS project indicators are found.
+func (d *NodeDetector) Detect(sourcePath string) (*WorkspaceInfo, error) {
+	globs, err := detectWorkspaceGlobs(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("detecting workspace: %w", err)
+	}
 
-// DetectWorkspace analyzes a source directory to determine its workspace
-// structure: monorepo vs standalone, package manager, packages, and alias maps.
-func DetectWorkspace(sourcePath string) (*WorkspaceInfo, error) {
-	if !dirExists(sourcePath) {
-		return nil, fmt.Errorf("source path does not exist: %s", sourcePath)
+	hasPackageJSON := fileExists(filepath.Join(sourcePath, "package.json"))
+
+	if len(globs) == 0 && !hasPackageJSON {
+		return nil, nil
 	}
 
 	info := &WorkspaceInfo{
@@ -36,30 +31,17 @@ func DetectWorkspace(sourcePath string) (*WorkspaceInfo, error) {
 		TSConfigPaths: make(map[string]string),
 	}
 
-	// 1. Detect workspace type and collect package globs
-	globs, err := detectWorkspaceGlobs(sourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("detecting workspace: %w", err)
-	}
-
 	if len(globs) == 0 {
-		// Standalone repo — single package
 		info.WorkspaceType = "standalone"
 		info.PackageManager = detectPackageManager(sourcePath)
 		pkg, err := readPackageInfo(sourcePath, sourcePath)
 		if err != nil {
-			// No package.json — anonymous package
-			pkg = PackageInfo{
-				Name: filepath.Base(sourcePath),
-				Path: ".",
-			}
+			pkg = PackageInfo{Name: filepath.Base(sourcePath), Path: "."}
 		}
 		info.Packages = []PackageInfo{pkg}
 	} else {
 		info.WorkspaceType = "monorepo"
 		info.PackageManager = detectPackageManager(sourcePath)
-
-		// 2. Expand globs to find packages
 		packages, err := discoverPackages(sourcePath, globs)
 		if err != nil {
 			return nil, fmt.Errorf("discovering packages: %w", err)
@@ -67,7 +49,7 @@ func DetectWorkspace(sourcePath string) (*WorkspaceInfo, error) {
 		info.Packages = packages
 	}
 
-	// 3. Build alias map from discovered packages
+	// Build alias map from discovered packages
 	for i := range info.Packages {
 		pkg := &info.Packages[i]
 		if pkg.Name == "" {
@@ -80,7 +62,7 @@ func DetectWorkspace(sourcePath string) (*WorkspaceInfo, error) {
 		}
 	}
 
-	// 4. Read tsconfig paths from workspace root
+	// Read tsconfig paths from workspace root
 	tsconfigPaths, err := readTSConfigPaths(sourcePath, sourcePath)
 	if err == nil {
 		maps.Copy(info.TSConfigPaths, tsconfigPaths)
@@ -92,7 +74,6 @@ func DetectWorkspace(sourcePath string) (*WorkspaceInfo, error) {
 		paths, err := readTSConfigPaths(pkgPath, sourcePath)
 		if err == nil {
 			for k, v := range paths {
-				// Package-level paths don't override workspace-level
 				if _, exists := info.TSConfigPaths[k]; !exists {
 					info.TSConfigPaths[k] = v
 				}
@@ -367,7 +348,7 @@ func readPackageInfo(pkgDir, rootPath string) (PackageInfo, error) {
 	}, nil
 }
 
-// findEntryPoint looks for the source entry point of a package.
+// findEntryPoint looks for the source entry point of a JS/TS package.
 // Heuristic: src/index.ts > src/index.tsx > main field from package.json.
 func findEntryPoint(pkgDir string) string {
 	candidates := []string{
@@ -543,14 +524,4 @@ func stripJSONComments(data []byte) []byte {
 	}
 
 	return result
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
