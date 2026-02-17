@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +21,7 @@ func DebugRoutes() chi.Router {
 
 	r.Post("/crawl", debugCrawl())
 	r.Post("/parse", debugParse())
+	r.Post("/resolve", debugResolve())
 	r.Post("/embed-text", debugEmbedText())
 	r.Post("/compare", debugCompare())
 	r.Post("/workspace", debugWorkspace())
@@ -83,6 +85,92 @@ func debugParse() http.HandlerFunc {
 			"nodes": result.Nodes,
 			"edges": result.Edges,
 			"stats": result.Stats(),
+		})
+	}
+}
+
+func debugResolve() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Path == "" {
+			writeError(w, http.StatusBadRequest, "path is required")
+			return
+		}
+
+		// 1. Detect workspace
+		wsInfo, err := detectors.DetectWorkspace(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("workspace detection: %v", err))
+			return
+		}
+
+		// 2. Crawl all code files
+		crawlResult, err := indexer.CrawlDirectory(req.Path, true)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("crawling: %v", err))
+			return
+		}
+
+		// 3. Parse all files and collect nodes + edges
+		var allNodes []parsers.NodeInfo
+		var allEdges []parsers.EdgeInfo
+		var allFiles []string
+		var parseErrors []string
+
+		for _, f := range crawlResult.Files {
+			allFiles = append(allFiles, f.RelPath)
+			source, err := os.ReadFile(f.AbsPath)
+			if err != nil {
+				parseErrors = append(parseErrors, fmt.Sprintf("%s: %v", f.RelPath, err))
+				continue
+			}
+			result, err := parsers.ParseFile(f.AbsPath, source)
+			if err != nil {
+				parseErrors = append(parseErrors, fmt.Sprintf("%s: %v", f.RelPath, err))
+				continue
+			}
+			// Rewrite edge/node sources to use relative paths
+			for _, n := range result.Nodes {
+				allNodes = append(allNodes, n)
+			}
+			for _, e := range result.Edges {
+				// Rewrite absolute file paths in edges to relative
+				if e.Kind == "imports" || e.Kind == "contains" {
+					if strings.HasPrefix(e.Source, "/") {
+						if rel, err := filepath.Rel(req.Path, e.Source); err == nil {
+							e.Source = rel
+						}
+					}
+				}
+				allEdges = append(allEdges, e)
+			}
+		}
+
+		// 4. Resolve imports
+		resolveResult := indexer.ResolveImports(
+			allEdges,
+			wsInfo.AliasMap,
+			wsInfo.TSConfigPaths,
+			allNodes,
+			allFiles,
+			req.Path,
+		)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"workspace":   wsInfo,
+			"filesCount":  len(allFiles),
+			"nodesCount":  len(allNodes),
+			"edgesCount":  len(allEdges),
+			"resolved":    resolveResult.Resolved,
+			"unresolved":  resolveResult.Unresolved,
+			"dependsOn":   resolveResult.DependsOn,
+			"parseErrors": parseErrors,
 		})
 	}
 }
