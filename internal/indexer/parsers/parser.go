@@ -5,6 +5,12 @@ import (
 	"path/filepath"
 )
 
+/**
+ * This is the main parser file and acts as the entry point
+ * to extend the parser to support another language, create a parser and
+ * simply extend the `init()` function in L62
+ */
+
 type NodeInfo struct {
 	Name          string `json:"name"`
 	QualifiedName string `json:"qualifiedName"`
@@ -55,11 +61,13 @@ var registry map[string]Parser
 
 func init() {
 	ts := NewTypeScriptParser()
+	gp := NewGoParser()
 	registry = map[string]Parser{
 		".ts":  ts,
 		".tsx": ts,
 		".js":  ts,
 		".jsx": ts,
+		".go":  gp,
 	}
 }
 
