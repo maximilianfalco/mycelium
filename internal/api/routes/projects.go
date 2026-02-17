@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/maximilianfalco/mycelium/internal/projects"
 )
 
@@ -19,6 +20,7 @@ func ProjectRoutes(pool *pgxpool.Pool) chi.Router {
 		r.Get("/", getProject(pool))
 		r.Put("/", updateProject(pool))
 		r.Delete("/", deleteProject(pool))
+		r.Patch("/settings", updateSettings(pool))
 
 		r.Post("/sources", addSource(pool))
 		r.Get("/sources", listSources(pool))
@@ -175,5 +177,33 @@ func removeSource(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func updateSettings(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req struct {
+			Settings json.RawMessage `json:"settings"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Settings == nil {
+			writeError(w, http.StatusBadRequest, "settings is required")
+			return
+		}
+
+		p, err := projects.UpdateProjectSettings(r.Context(), pool, id, req.Settings)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if p == nil {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
 	}
 }

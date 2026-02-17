@@ -21,6 +21,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { DebugTab } from "@/components/debug/debug-tab";
+import { SettingsPanel } from "@/components/settings-panel";
+import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
 
 export function ProjectDetail({
   id,
@@ -54,6 +56,7 @@ export function ProjectDetail({
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const load = async () => {
     try {
@@ -144,7 +147,6 @@ export function ProjectDetail({
   };
 
   const handleDelete = async () => {
-    if (!confirm("delete this colony? this cannot be undone.")) return;
     await api.projects.delete(id);
     router.push("/");
   };
@@ -166,10 +168,32 @@ export function ProjectDetail({
             </p>
           )}
         </div>
-        <Button variant="secondary" size="sm" onClick={handleDelete}>
-          delete
-        </Button>
+        <div className="flex gap-2">
+          <SettingsPanel
+            projectId={id}
+            settings={project.settings ?? {}}
+            onSave={load}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setDeleteOpen(true)}
+          >
+            delete
+          </Button>
+        </div>
       </div>
+
+      <ConfirmationDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="delete colony"
+        body="this will permanently delete this colony and all its linked substrates. this cannot be undone."
+        cancel="cancel"
+        yes="delete"
+        onCancel={() => setDeleteOpen(false)}
+        onAccept={handleDelete}
+      />
 
       {indexStatus && (
         <div className="flex gap-4 mb-6 text-xs text-muted-foreground">
@@ -376,6 +400,7 @@ export function ProjectDetail({
 
       {tab === "graph" && (
         <div className="flex flex-col items-center justify-center py-24 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="" width={64} height={64} className="mb-6" />
           <p className="text-sm text-muted-foreground">coming soon</p>
         </div>

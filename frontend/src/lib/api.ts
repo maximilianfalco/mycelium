@@ -17,10 +17,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface ProjectSettings {
+  maxFileSizeKB?: number;
+  rootPath?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
+  settings: ProjectSettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -157,6 +163,11 @@ export const api = {
       }),
     delete: (id: string) =>
       request<void>(`/projects/${id}`, { method: "DELETE" }),
+    updateSettings: (id: string, settings: ProjectSettings) =>
+      request<Project>(`/projects/${id}/settings`, {
+        method: "PATCH",
+        body: JSON.stringify({ settings }),
+      }),
   },
 
   sources: {

@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -27,19 +28,20 @@ func CreateProject(ctx context.Context, pool *pgxpool.Pool, name, description st
 	}
 
 	now := time.Now()
+	defaultSettings := json.RawMessage(`{}`)
 	_, err := pool.Exec(ctx,
-		"INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-		id, name, description, now, now,
+		"INSERT INTO projects (id, name, description, settings, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
+		id, name, description, defaultSettings, now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating project: %w", err)
 	}
 
-	return &Project{ID: id, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}, nil
+	return &Project{ID: id, Name: name, Description: description, Settings: defaultSettings, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func ListProjects(ctx context.Context, pool *pgxpool.Pool) ([]Project, error) {
-	rows, err := pool.Query(ctx, "SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC")
+	rows, err := pool.Query(ctx, "SELECT id, name, description, settings, created_at, updated_at FROM projects ORDER BY created_at DESC")
 	if err != nil {
 		return nil, fmt.Errorf("listing projects: %w", err)
 	}
@@ -48,7 +50,7 @@ func ListProjects(ctx context.Context, pool *pgxpool.Pool) ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Settings, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning project: %w", err)
 		}
 		projects = append(projects, p)
@@ -59,8 +61,8 @@ func ListProjects(ctx context.Context, pool *pgxpool.Pool) ([]Project, error) {
 func GetProject(ctx context.Context, pool *pgxpool.Pool, id string) (*Project, error) {
 	var p Project
 	err := pool.QueryRow(ctx,
-		"SELECT id, name, description, created_at, updated_at FROM projects WHERE id = $1", id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
+		"SELECT id, name, description, settings, created_at, updated_at FROM projects WHERE id = $1", id,
+	).Scan(&p.ID, &p.Name, &p.Description, &p.Settings, &p.CreatedAt, &p.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -82,7 +84,22 @@ func UpdateProject(ctx context.Context, pool *pgxpool.Pool, id, name, descriptio
 	if tag.RowsAffected() == 0 {
 		return nil, nil
 	}
-	return &Project{ID: id, Name: name, Description: description, UpdatedAt: now}, nil
+	return GetProject(ctx, pool, id)
+}
+
+func UpdateProjectSettings(ctx context.Context, pool *pgxpool.Pool, id string, settings json.RawMessage) (*Project, error) {
+	now := time.Now()
+	tag, err := pool.Exec(ctx,
+		"UPDATE projects SET settings = $1, updated_at = $2 WHERE id = $3",
+		settings, now, id,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("updating project settings: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, nil
+	}
+	return GetProject(ctx, pool, id)
 }
 
 func DeleteProject(ctx context.Context, pool *pgxpool.Pool, id string) error {

@@ -22,7 +22,9 @@ export function DebugTab() {
 
   const [crawlData, setCrawlData] = useState<CrawlResponse | null>(null);
   const [parseData, setParseData] = useState<ParseResponse | null>(null);
-  const [workspaceData, setWorkspaceData] = useState<WorkspaceResponse | null>(null);
+  const [workspaceData, setWorkspaceData] = useState<WorkspaceResponse | null>(
+    null,
+  );
   const [changesData, setChangesData] = useState<ChangesResponse | null>(null);
 
   const expandPath = (p: string) => {
@@ -98,7 +100,9 @@ export function DebugTab() {
           title="stage 3: parse"
           description="parse a single file into nodes and edges"
           onRun={async () => {
-            const res = await api.debug.parse(expandPath(filePath || path + "/src/index.ts"));
+            const res = await api.debug.parse(
+              expandPath(filePath || path + "/src/index.ts"),
+            );
             setParseData(res);
           }}
           disabled={!path.trim()}
