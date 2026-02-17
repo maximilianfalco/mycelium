@@ -8,5 +8,6 @@ Local-only code intelligence tool. Parses local repos, builds a structural graph
 |---|---|---|
 | TypeScript | `.ts`, `.tsx` | In progress |
 | JavaScript | `.js`, `.jsx` | In progress |
+| Go | `.go` | In progress |
 
-Other languages (Go, Python, Rust, etc.) are not yet supported. The workspace detection, file crawling, and parsing pipeline currently targets the JavaScript/TypeScript ecosystem only (package.json, tsconfig.json, pnpm/yarn/npm workspaces).
+Other languages (Python, Rust, etc.) are not yet supported. Workspace detection supports both the JavaScript/TypeScript ecosystem (package.json, tsconfig.json, pnpm/yarn/npm workspaces) and Go (go.work, go.mod). Tree-sitter parsers for all three languages are planned for step 2.3.
