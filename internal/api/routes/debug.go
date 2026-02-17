@@ -2,14 +2,16 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
-	"path/filepath"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maximilianfalco/mycelium/internal/indexer"
+	"github.com/maximilianfalco/mycelium/internal/indexer/parsers"
 )
 
 func DebugRoutes() chi.Router {
@@ -63,63 +65,22 @@ func debugParse() http.HandlerFunc {
 			return
 		}
 
-		fileName := filepath.Base(req.FilePath)
-		ext := filepath.Ext(req.FilePath)
-		baseName := strings.TrimSuffix(fileName, ext)
-
-		mockNodes := []map[string]any{
-			{
-				"name":          baseName,
-				"qualifiedName": "src/" + baseName,
-				"kind":          "module",
-				"signature":     "",
-				"startLine":     1,
-				"endLine":       45,
-				"sourceCode":    "// module: " + baseName,
-				"docstring":     "Main module for " + baseName,
-				"bodyHash":      "a1b2c3d4e5f6",
-			},
-			{
-				"name":          "calculate",
-				"qualifiedName": "src/" + baseName + ".calculate",
-				"kind":          "function",
-				"signature":     "function calculate(a: number, b: number): number",
-				"startLine":     5,
-				"endLine":       12,
-				"sourceCode":    "function calculate(a: number, b: number): number {\n  return a + b;\n}",
-				"docstring":     "Calculates the sum of two numbers",
-				"bodyHash":      "f6e5d4c3b2a1",
-			},
-			{
-				"name":          "Config",
-				"qualifiedName": "src/" + baseName + ".Config",
-				"kind":          "interface",
-				"signature":     "interface Config",
-				"startLine":     14,
-				"endLine":       20,
-				"sourceCode":    "interface Config {\n  debug: boolean;\n  verbose: boolean;\n}",
-				"docstring":     "",
-				"bodyHash":      "1a2b3c4d5e6f",
-			},
+		source, err := os.ReadFile(req.FilePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("reading file: %v", err))
+			return
 		}
 
-		mockEdges := []map[string]any{
-			{"source": "src/" + baseName + ".calculate", "target": "src/utils/helpers.add", "kind": "calls"},
-			{"source": "src/" + baseName, "target": "src/utils/helpers", "kind": "imports"},
+		result, err := parsers.ParseFile(req.FilePath, source)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("parsing file: %v", err))
+			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"nodes": mockNodes,
-			"edges": mockEdges,
-			"stats": map[string]any{
-				"nodeCount": len(mockNodes),
-				"edgeCount": len(mockEdges),
-				"byKind": map[string]int{
-					"module":    1,
-					"function":  1,
-					"interface": 1,
-				},
-			},
+			"nodes": result.Nodes,
+			"edges": result.Edges,
+			"stats": result.Stats(),
 		})
 	}
 }
