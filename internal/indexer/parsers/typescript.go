@@ -38,6 +38,7 @@ func (p *TypeScriptParser) Parse(filePath string, source []byte) (*ParseResult, 
 	result := &ParseResult{}
 	root := tree.RootNode()
 	p.walkTopLevel(source, root, "", result)
+	p.extractEdges(source, root, filePath, result)
 	return result, nil
 }
 
@@ -300,4 +301,380 @@ func extractArrowSignature(source []byte, declarator *sitter.Node) string {
 	}
 	lines := strings.SplitN(text, "\n", 2)
 	return strings.TrimSpace(lines[0])
+}
+
+// --- Edge extraction ---
+
+func (p *TypeScriptParser) extractEdges(source []byte, root *sitter.Node, filePath string, result *ParseResult) {
+	p.extractImportEdges(source, root, filePath, result)
+	p.extractContainsEdges(filePath, result)
+	p.extractClassEdges(source, root, result)
+	p.extractCallEdges(source, root, result)
+	p.extractTypeEdges(source, root, result)
+}
+
+func (p *TypeScriptParser) extractImportEdges(source []byte, root *sitter.Node, filePath string, result *ParseResult) {
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		child := root.NamedChild(i)
+		if child.Type() != "import_statement" {
+			continue
+		}
+
+		moduleNode := findChildByType(child, "string")
+		if moduleNode == nil {
+			continue
+		}
+		module := stripQuotes(nodeContent(source, moduleNode))
+
+		var symbols []string
+		clause := findChildByType(child, "import_clause")
+		if clause != nil {
+			symbols = extractImportSymbols(source, clause)
+		}
+
+		result.Edges = append(result.Edges, EdgeInfo{
+			Source:  filePath,
+			Target:  module,
+			Kind:    "imports",
+			Line:    int(child.StartPoint().Row) + 1,
+			Symbols: symbols,
+		})
+	}
+}
+
+func extractImportSymbols(source []byte, clause *sitter.Node) []string {
+	var symbols []string
+	for i := 0; i < int(clause.ChildCount()); i++ {
+		child := clause.Child(i)
+		switch child.Type() {
+		case "identifier":
+			symbols = append(symbols, nodeContent(source, child))
+		case "named_imports":
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				spec := child.NamedChild(j)
+				if spec.Type() == "import_specifier" {
+					name := spec.ChildByFieldName("name")
+					if name != nil {
+						symbols = append(symbols, nodeContent(source, name))
+					}
+				}
+			}
+		case "namespace_import":
+			for j := 0; j < int(child.ChildCount()); j++ {
+				c := child.Child(j)
+				if c.Type() == "identifier" {
+					symbols = append(symbols, "* as "+nodeContent(source, c))
+					break
+				}
+			}
+		}
+	}
+	return symbols
+}
+
+func (p *TypeScriptParser) extractContainsEdges(filePath string, result *ParseResult) {
+	for _, node := range result.Nodes {
+		switch node.Kind {
+		case "class", "function", "interface", "type_alias", "enum":
+			result.Edges = append(result.Edges, EdgeInfo{
+				Source: filePath,
+				Target: node.QualifiedName,
+				Kind:   "contains",
+				Line:   node.StartLine,
+			})
+		case "method":
+			parts := strings.SplitN(node.QualifiedName, ".", 2)
+			if len(parts) == 2 {
+				result.Edges = append(result.Edges, EdgeInfo{
+					Source: parts[0],
+					Target: node.QualifiedName,
+					Kind:   "contains",
+					Line:   node.StartLine,
+				})
+			}
+		}
+	}
+}
+
+func (p *TypeScriptParser) extractClassEdges(source []byte, root *sitter.Node, result *ParseResult) {
+	p.walkForClassEdges(source, root, result)
+}
+
+func (p *TypeScriptParser) walkForClassEdges(source []byte, node *sitter.Node, result *ParseResult) {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		switch child.Type() {
+		case "class_declaration", "abstract_class_declaration":
+			p.extractHeritageEdges(source, child, result)
+		case "export_statement":
+			p.walkForClassEdges(source, child, result)
+		}
+	}
+}
+
+func (p *TypeScriptParser) extractHeritageEdges(source []byte, classNode *sitter.Node, result *ParseResult) {
+	nameNode := classNode.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	className := nodeContent(source, nameNode)
+
+	heritage := findChildByType(classNode, "class_heritage")
+	if heritage == nil {
+		return
+	}
+
+	for i := 0; i < int(heritage.ChildCount()); i++ {
+		child := heritage.Child(i)
+		switch child.Type() {
+		case "extends_clause":
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				target := child.NamedChild(j)
+				result.Edges = append(result.Edges, EdgeInfo{
+					Source: className,
+					Target: nodeContent(source, target),
+					Kind:   "extends",
+					Line:   int(child.StartPoint().Row) + 1,
+				})
+			}
+		case "implements_clause":
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				target := child.NamedChild(j)
+				if target.Type() == "type_identifier" {
+					result.Edges = append(result.Edges, EdgeInfo{
+						Source: className,
+						Target: nodeContent(source, target),
+						Kind:   "implements",
+						Line:   int(child.StartPoint().Row) + 1,
+					})
+				}
+			}
+		}
+	}
+}
+
+func (p *TypeScriptParser) extractCallEdges(source []byte, root *sitter.Node, result *ParseResult) {
+	for _, node := range result.Nodes {
+		if node.Kind != "function" && node.Kind != "method" {
+			continue
+		}
+		// Find the AST node for this declaration by matching line numbers
+		astNode := findDeclAtLine(root, node.StartLine-1)
+		if astNode == nil {
+			continue
+		}
+		body := findBody(astNode)
+		if body == nil {
+			continue
+		}
+		p.collectCalls(source, body, node.QualifiedName, result)
+	}
+}
+
+func (p *TypeScriptParser) collectCalls(source []byte, node *sitter.Node, callerName string, result *ParseResult) {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+
+		// Skip nested arrow/function expressions to avoid capturing calls inside lambdas
+		if child.Type() == "arrow_function" || child.Type() == "function_expression" || child.Type() == "function_declaration" {
+			continue
+		}
+
+		if child.Type() == "call_expression" {
+			callee := child.ChildByFieldName("function")
+			if callee != nil {
+				calleeName := extractCalleeName(source, callee)
+				if calleeName != "" {
+					result.Edges = append(result.Edges, EdgeInfo{
+						Source: callerName,
+						Target: calleeName,
+						Kind:   "calls",
+						Line:   int(child.StartPoint().Row) + 1,
+					})
+				}
+			}
+		}
+
+		p.collectCalls(source, child, callerName, result)
+	}
+}
+
+func extractCalleeName(source []byte, node *sitter.Node) string {
+	switch node.Type() {
+	case "identifier":
+		return nodeContent(source, node)
+	case "member_expression":
+		return nodeContent(source, node)
+	case "super":
+		return "super"
+	default:
+		return ""
+	}
+}
+
+func (p *TypeScriptParser) extractTypeEdges(source []byte, root *sitter.Node, result *ParseResult) {
+	for _, node := range result.Nodes {
+		if node.Kind != "function" && node.Kind != "method" {
+			continue
+		}
+		astNode := findDeclAtLine(root, node.StartLine-1)
+		if astNode == nil {
+			continue
+		}
+		types := collectTypeAnnotations(source, astNode)
+		seen := make(map[string]bool)
+		for _, t := range types {
+			if seen[t.name] {
+				continue
+			}
+			seen[t.name] = true
+			result.Edges = append(result.Edges, EdgeInfo{
+				Source: node.QualifiedName,
+				Target: t.name,
+				Kind:   "uses_type",
+				Line:   t.line,
+			})
+		}
+	}
+}
+
+type typeRef struct {
+	name string
+	line int
+}
+
+func collectTypeAnnotations(source []byte, node *sitter.Node) []typeRef {
+	var refs []typeRef
+
+	// Check parameters
+	params := node.ChildByFieldName("parameters")
+	if params != nil {
+		refs = append(refs, findTypeIdentifiers(source, params)...)
+	}
+
+	// Check return type annotation
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "type_annotation" {
+			refs = append(refs, findTypeIdentifiers(source, child)...)
+		}
+	}
+
+	// For arrow functions inside variable declarators, check the declarator
+	if node.Type() == "variable_declarator" {
+		value := node.ChildByFieldName("value")
+		if value != nil {
+			params := value.ChildByFieldName("parameters")
+			if params != nil {
+				refs = append(refs, findTypeIdentifiers(source, params)...)
+			}
+			for i := 0; i < int(value.ChildCount()); i++ {
+				child := value.Child(i)
+				if child.Type() == "type_annotation" {
+					refs = append(refs, findTypeIdentifiers(source, child)...)
+				}
+			}
+		}
+	}
+
+	return refs
+}
+
+func findTypeIdentifiers(source []byte, node *sitter.Node) []typeRef {
+	var refs []typeRef
+	if node.Type() == "type_identifier" {
+		name := nodeContent(source, node)
+		// Skip built-in types
+		if !isBuiltinType(name) {
+			refs = append(refs, typeRef{name: name, line: int(node.StartPoint().Row) + 1})
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		refs = append(refs, findTypeIdentifiers(source, node.Child(i))...)
+	}
+	return refs
+}
+
+func isBuiltinType(name string) bool {
+	switch name {
+	case "string", "number", "boolean", "void", "null", "undefined",
+		"any", "never", "unknown", "object", "symbol", "bigint":
+		return true
+	}
+	return false
+}
+
+// --- Helpers for edge extraction ---
+
+func findChildByType(node *sitter.Node, nodeType string) *sitter.Node {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == nodeType {
+			return child
+		}
+	}
+	return nil
+}
+
+func stripQuotes(s string) string {
+	s = strings.TrimPrefix(s, "\"")
+	s = strings.TrimSuffix(s, "\"")
+	s = strings.TrimPrefix(s, "'")
+	s = strings.TrimSuffix(s, "'")
+	return s
+}
+
+// findDeclAtLine finds a declaration node at the given 0-indexed row.
+func findDeclAtLine(root *sitter.Node, row int) *sitter.Node {
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		child := root.NamedChild(i)
+		if child.Type() == "export_statement" {
+			result := findDeclAtLine(child, row)
+			if result != nil {
+				return result
+			}
+		}
+		if int(child.StartPoint().Row) == row {
+			// For lexical_declaration, return the variable_declarator
+			if child.Type() == "lexical_declaration" {
+				for j := 0; j < int(child.NamedChildCount()); j++ {
+					decl := child.NamedChild(j)
+					if decl.Type() == "variable_declarator" {
+						return decl
+					}
+				}
+			}
+			return child
+		}
+		// Check class methods
+		if child.Type() == "class_declaration" || child.Type() == "abstract_class_declaration" {
+			body := child.ChildByFieldName("body")
+			if body != nil {
+				for j := 0; j < int(body.NamedChildCount()); j++ {
+					method := body.NamedChild(j)
+					if method.Type() == "method_definition" && int(method.StartPoint().Row) == row {
+						return method
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func findBody(node *sitter.Node) *sitter.Node {
+	// For variable_declarator (arrow functions), the body is inside the value
+	if node.Type() == "variable_declarator" {
+		value := node.ChildByFieldName("value")
+		if value != nil {
+			body := value.ChildByFieldName("body")
+			if body != nil {
+				return body
+			}
+			// Concise arrow: the body is the expression itself
+			return value
+		}
+		return nil
+	}
+	return node.ChildByFieldName("body")
 }

@@ -18,9 +18,11 @@ type NodeInfo struct {
 }
 
 type EdgeInfo struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Kind   string `json:"kind"`
+	Source  string   `json:"source"`
+	Target  string   `json:"target"`
+	Kind    string   `json:"kind"`
+	Line    int      `json:"line"`
+	Symbols []string `json:"symbols,omitempty"`
 }
 
 type ParseResult struct {
@@ -29,14 +31,19 @@ type ParseResult struct {
 }
 
 func (r *ParseResult) Stats() map[string]any {
-	byKind := make(map[string]int)
+	nodesByKind := make(map[string]int)
 	for _, n := range r.Nodes {
-		byKind[n.Kind]++
+		nodesByKind[n.Kind]++
+	}
+	edgesByKind := make(map[string]int)
+	for _, e := range r.Edges {
+		edgesByKind[e.Kind]++
 	}
 	return map[string]any{
-		"nodeCount": len(r.Nodes),
-		"edgeCount": len(r.Edges),
-		"byKind":    byKind,
+		"nodeCount":   len(r.Nodes),
+		"edgeCount":   len(r.Edges),
+		"byKind":      nodesByKind,
+		"edgesByKind": edgesByKind,
 	}
 }
 
