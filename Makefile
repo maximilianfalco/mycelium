@@ -6,7 +6,9 @@ AIR=$(shell go env GOPATH)/bin/air
 build:
 	go build -o $(BINARY) ./cmd/myc
 
-test:
+test: db
+	@until docker compose exec -T db pg_isready -U mycelium -q 2>/dev/null; do sleep 0.5; done
+	@docker compose exec -T db psql -U mycelium -d mycelium -f /docker-entrypoint-initdb.d/001-schema.sql -q 2>/dev/null || true
 	go test ./... -v
 
 lint:

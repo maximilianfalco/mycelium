@@ -33,6 +33,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Apply schema
+        run: psql $DATABASE_URL -f internal/db/schema.sql
+        env:
+          DATABASE_URL: postgres://mycelium:mycelium@localhost:5433/mycelium?sslmode=disable
+
       - name: Vet
         run: go vet ./...
 
