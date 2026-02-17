@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const mono = JetBrains_Mono({
@@ -33,6 +34,7 @@ export default function RootLayout({
           </header>
           <main>{children}</main>
         </div>
+        <Toaster />
       </body>
     </html>
   );

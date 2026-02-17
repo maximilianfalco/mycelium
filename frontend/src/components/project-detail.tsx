@@ -46,7 +46,9 @@ export function ProjectDetail({
   );
 
   const [scanOpen, setScanOpen] = useState(false);
-  const [scanPath, setScanPath] = useState("~/Desktop/Code");
+  const [scanPath, setScanPath] = useState(
+    initialProject.settings?.rootPath || "~/Desktop/Code",
+  );
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [scanning, setScanning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -57,6 +59,7 @@ export function ProjectDetail({
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const load = async () => {
     try {
@@ -68,6 +71,9 @@ export function ProjectDetail({
       setProject(p);
       setSources(s);
       setIndexStatus(idx);
+      if (p.settings?.rootPath) {
+        setScanPath(p.settings.rootPath);
+      }
     } catch {
       // handle error
     }
@@ -152,7 +158,7 @@ export function ProjectDetail({
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-10">
+    <div className="max-w-5xl mx-auto px-6 py-10">
       <div className="flex items-center justify-between mb-6">
         <div>
           <button
@@ -173,6 +179,8 @@ export function ProjectDetail({
             projectId={id}
             settings={project.settings ?? {}}
             onSave={load}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
           />
           <Button
             variant="secondary"
@@ -293,6 +301,15 @@ export function ProjectDetail({
                         {selected.size !== 1 ? "s" : ""}
                       </Button>
                     )}
+                    <button
+                      onClick={() => {
+                        setScanOpen(false);
+                        setSettingsOpen(true);
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      change source directory
+                    </button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -396,7 +413,13 @@ export function ProjectDetail({
         </div>
       )}
 
-      {tab === "debug" && <DebugTab />}
+      {tab === "debug" && (
+        <DebugTab
+          key={project.settings?.rootPath ?? ""}
+          rootPath={project.settings?.rootPath}
+          maxFileSizeKB={project.settings?.maxFileSizeKB}
+        />
+      )}
 
       {tab === "graph" && (
         <div className="flex flex-col items-center justify-center py-24 text-center">

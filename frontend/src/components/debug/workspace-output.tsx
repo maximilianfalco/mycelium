@@ -1,5 +1,6 @@
 import type { WorkspaceResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/ui/truncated-text";
 
 export function WorkspaceOutput({ data }: { data: WorkspaceResponse }) {
   return (
@@ -13,12 +14,19 @@ export function WorkspaceOutput({ data }: { data: WorkspaceResponse }) {
       <div className="space-y-1">
         <p className="text-xs text-muted-foreground font-medium">packages</p>
         {data.packages.map((pkg) => (
-          <div key={pkg.name} className="flex items-center gap-3 px-3 py-1.5 border border-border text-sm">
-            <span className="font-mono">{pkg.name}</span>
-            <Badge variant="outline" className="text-xs">
+          <div
+            key={pkg.name}
+            className="flex items-center gap-3 px-3 py-1.5 border border-border text-sm min-w-0"
+          >
+            <TruncatedText className="font-mono min-w-0 flex-1">
+              {pkg.name}
+            </TruncatedText>
+            <Badge variant="outline" className="text-xs shrink-0">
               {pkg.version}
             </Badge>
-            <span className="text-xs text-muted-foreground ml-auto">{pkg.path}</span>
+            <TruncatedText className="text-xs text-muted-foreground min-w-0 flex-1 text-right">
+              {pkg.path}
+            </TruncatedText>
           </div>
         ))}
       </div>
@@ -27,10 +35,15 @@ export function WorkspaceOutput({ data }: { data: WorkspaceResponse }) {
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground font-medium">alias map</p>
           {Object.entries(data.aliasMap).map(([alias, target]) => (
-            <div key={alias} className="flex items-center gap-2 px-3 py-1 border border-border text-xs font-mono">
-              <span>{alias}</span>
-              <span className="text-muted-foreground">&rarr;</span>
-              <span className="text-muted-foreground">{target}</span>
+            <div
+              key={alias}
+              className="flex items-center gap-2 px-3 py-1 border border-border text-xs font-mono min-w-0"
+            >
+              <TruncatedText className="min-w-0 flex-1">{alias}</TruncatedText>
+              <span className="text-muted-foreground shrink-0">&rarr;</span>
+              <TruncatedText className="text-muted-foreground min-w-0 flex-1">
+                {target}
+              </TruncatedText>
             </div>
           ))}
         </div>
@@ -38,12 +51,19 @@ export function WorkspaceOutput({ data }: { data: WorkspaceResponse }) {
 
       {Object.keys(data.tsconfigPaths).length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground font-medium">tsconfig paths</p>
+          <p className="text-xs text-muted-foreground font-medium">
+            tsconfig paths
+          </p>
           {Object.entries(data.tsconfigPaths).map(([alias, target]) => (
-            <div key={alias} className="flex items-center gap-2 px-3 py-1 border border-border text-xs font-mono">
-              <span>{alias}</span>
-              <span className="text-muted-foreground">&rarr;</span>
-              <span className="text-muted-foreground">{target}</span>
+            <div
+              key={alias}
+              className="flex items-center gap-2 px-3 py-1 border border-border text-xs font-mono min-w-0"
+            >
+              <TruncatedText className="min-w-0 flex-1">{alias}</TruncatedText>
+              <span className="text-muted-foreground shrink-0">&rarr;</span>
+              <TruncatedText className="text-muted-foreground min-w-0 flex-1">
+                {target}
+              </TruncatedText>
             </div>
           ))}
         </div>

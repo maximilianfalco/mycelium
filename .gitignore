@@ -15,6 +15,8 @@ myc
 # Go workspace
 go.work
 go.work.sum
+# But keep go.work in test fixtures
+!tests/fixtures/**/go.work
 
 # Environment
 .env

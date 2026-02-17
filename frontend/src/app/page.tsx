@@ -6,7 +6,7 @@ export default function HomePage() {
   return (
     <Suspense
       fallback={
-        <div className="max-w-3xl mx-auto px-6 py-10">
+        <div className="max-w-5xl mx-auto px-6 py-10">
           <p className="text-sm text-muted-foreground">loading...</p>
         </div>
       }

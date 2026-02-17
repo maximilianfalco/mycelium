@@ -1,7 +1,16 @@
 import type { ChangesResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/ui/truncated-text";
 
-function FileList({ label, files, variant }: { label: string; files: string[]; variant: "default" | "secondary" | "destructive" }) {
+function FileList({
+  label,
+  files,
+  variant,
+}: {
+  label: string;
+  files: string[];
+  variant: "default" | "secondary" | "destructive";
+}) {
   if (files.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -12,8 +21,11 @@ function FileList({ label, files, variant }: { label: string; files: string[]; v
         </Badge>
       </div>
       {files.map((f) => (
-        <div key={f} className="px-3 py-1 border border-border text-xs font-mono">
-          {f}
+        <div
+          key={f}
+          className="px-3 py-1 border border-border text-xs font-mono min-w-0"
+        >
+          <TruncatedText>{f}</TruncatedText>
         </div>
       ))}
     </div>
@@ -27,13 +39,29 @@ export function ChangesOutput({ data }: { data: ChangesResponse }) {
         <span>git: {data.isGitRepo ? "yes" : "no"}</span>
         <span>current: {data.currentCommit}</span>
         <span>last indexed: {data.lastIndexedCommit || "never"}</span>
-        {data.isFullIndex && <Badge variant="secondary" className="text-xs">full re-index</Badge>}
-        {data.thresholdExceeded && <Badge variant="destructive" className="text-xs">threshold exceeded</Badge>}
+        {data.isFullIndex && (
+          <Badge variant="secondary" className="text-xs">
+            full re-index
+          </Badge>
+        )}
+        {data.thresholdExceeded && (
+          <Badge variant="destructive" className="text-xs">
+            threshold exceeded
+          </Badge>
+        )}
       </div>
 
       <FileList label="added" files={data.addedFiles} variant="default" />
-      <FileList label="modified" files={data.modifiedFiles} variant="secondary" />
-      <FileList label="deleted" files={data.deletedFiles} variant="destructive" />
+      <FileList
+        label="modified"
+        files={data.modifiedFiles}
+        variant="secondary"
+      />
+      <FileList
+        label="deleted"
+        files={data.deletedFiles}
+        variant="destructive"
+      />
     </div>
   );
 }

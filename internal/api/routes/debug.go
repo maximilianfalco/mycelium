@@ -2,14 +2,18 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maximilianfalco/mycelium/internal/indexer"
+	"github.com/maximilianfalco/mycelium/internal/indexer/detectors"
+	"github.com/maximilianfalco/mycelium/internal/indexer/parsers"
 )
 
 func DebugRoutes() chi.Router {
@@ -17,6 +21,7 @@ func DebugRoutes() chi.Router {
 
 	r.Post("/crawl", debugCrawl())
 	r.Post("/parse", debugParse())
+	r.Post("/resolve", debugResolve())
 	r.Post("/embed-text", debugEmbedText())
 	r.Post("/compare", debugCompare())
 	r.Post("/workspace", debugWorkspace())
@@ -28,7 +33,8 @@ func DebugRoutes() chi.Router {
 func debugCrawl() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Path string `json:"path"`
+			Path          string `json:"path"`
+			MaxFileSizeKB int    `json:"maxFileSizeKB"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -39,7 +45,7 @@ func debugCrawl() http.HandlerFunc {
 			return
 		}
 
-		result, err := indexer.CrawlDirectory(req.Path, true)
+		result, err := indexer.CrawlDirectory(req.Path, true, req.MaxFileSizeKB)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -63,63 +69,108 @@ func debugParse() http.HandlerFunc {
 			return
 		}
 
-		fileName := filepath.Base(req.FilePath)
-		ext := filepath.Ext(req.FilePath)
-		baseName := strings.TrimSuffix(fileName, ext)
-
-		mockNodes := []map[string]any{
-			{
-				"name":          baseName,
-				"qualifiedName": "src/" + baseName,
-				"kind":          "module",
-				"signature":     "",
-				"startLine":     1,
-				"endLine":       45,
-				"sourceCode":    "// module: " + baseName,
-				"docstring":     "Main module for " + baseName,
-				"bodyHash":      "a1b2c3d4e5f6",
-			},
-			{
-				"name":          "calculate",
-				"qualifiedName": "src/" + baseName + ".calculate",
-				"kind":          "function",
-				"signature":     "function calculate(a: number, b: number): number",
-				"startLine":     5,
-				"endLine":       12,
-				"sourceCode":    "function calculate(a: number, b: number): number {\n  return a + b;\n}",
-				"docstring":     "Calculates the sum of two numbers",
-				"bodyHash":      "f6e5d4c3b2a1",
-			},
-			{
-				"name":          "Config",
-				"qualifiedName": "src/" + baseName + ".Config",
-				"kind":          "interface",
-				"signature":     "interface Config",
-				"startLine":     14,
-				"endLine":       20,
-				"sourceCode":    "interface Config {\n  debug: boolean;\n  verbose: boolean;\n}",
-				"docstring":     "",
-				"bodyHash":      "1a2b3c4d5e6f",
-			},
+		source, err := os.ReadFile(req.FilePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("reading file: %v", err))
+			return
 		}
 
-		mockEdges := []map[string]any{
-			{"source": "src/" + baseName + ".calculate", "target": "src/utils/helpers.add", "kind": "calls"},
-			{"source": "src/" + baseName, "target": "src/utils/helpers", "kind": "imports"},
+		result, err := parsers.ParseFile(req.FilePath, source)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("parsing file: %v", err))
+			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"nodes": mockNodes,
-			"edges": mockEdges,
-			"stats": map[string]any{
-				"nodeCount": len(mockNodes),
-				"edgeCount": len(mockEdges),
-				"byKind": map[string]int{
-					"module":    1,
-					"function":  1,
-					"interface": 1,
-				},
-			},
+			"nodes": result.Nodes,
+			"edges": result.Edges,
+			"stats": result.Stats(),
+		})
+	}
+}
+
+func debugResolve() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Path == "" {
+			writeError(w, http.StatusBadRequest, "path is required")
+			return
+		}
+
+		// 1. Detect workspace
+		wsInfo, err := detectors.DetectWorkspace(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("workspace detection: %v", err))
+			return
+		}
+
+		// 2. Crawl all code files
+		crawlResult, err := indexer.CrawlDirectory(req.Path, true)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("crawling: %v", err))
+			return
+		}
+
+		// 3. Parse all files and collect nodes + edges
+		var allNodes []parsers.NodeInfo
+		var allEdges []parsers.EdgeInfo
+		var allFiles []string
+		var parseErrors []string
+
+		for _, f := range crawlResult.Files {
+			allFiles = append(allFiles, f.RelPath)
+			source, err := os.ReadFile(f.AbsPath)
+			if err != nil {
+				parseErrors = append(parseErrors, fmt.Sprintf("%s: %v", f.RelPath, err))
+				continue
+			}
+			result, err := parsers.ParseFile(f.AbsPath, source)
+			if err != nil {
+				parseErrors = append(parseErrors, fmt.Sprintf("%s: %v", f.RelPath, err))
+				continue
+			}
+			// Rewrite edge/node sources to use relative paths
+			for _, n := range result.Nodes {
+				allNodes = append(allNodes, n)
+			}
+			for _, e := range result.Edges {
+				// Rewrite absolute file paths in edges to relative
+				if e.Kind == "imports" || e.Kind == "contains" {
+					if strings.HasPrefix(e.Source, "/") {
+						if rel, err := filepath.Rel(req.Path, e.Source); err == nil {
+							e.Source = rel
+						}
+					}
+				}
+				allEdges = append(allEdges, e)
+			}
+		}
+
+		// 4. Resolve imports
+		resolveResult := indexer.ResolveImports(
+			allEdges,
+			wsInfo.AliasMap,
+			wsInfo.TSConfigPaths,
+			allNodes,
+			allFiles,
+			req.Path,
+		)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"workspace":   wsInfo,
+			"filesCount":  len(allFiles),
+			"nodesCount":  len(allNodes),
+			"edgesCount":  len(allEdges),
+			"resolved":    resolveResult.Resolved,
+			"unresolved":  resolveResult.Unresolved,
+			"dependsOn":   resolveResult.DependsOn,
+			"parseErrors": parseErrors,
 		})
 	}
 }
@@ -216,22 +267,13 @@ func debugWorkspace() http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"workspaceType":  "monorepo",
-			"packageManager": "pnpm",
-			"packages": []map[string]any{
-				{"name": "@mycelium/core", "path": "packages/core", "version": "0.1.0"},
-				{"name": "@mycelium/web", "path": "apps/web", "version": "0.1.0"},
-				{"name": "@mycelium/cli", "path": "packages/cli", "version": "0.1.0"},
-			},
-			"aliasMap": map[string]string{
-				"@core/*": "packages/core/src/*",
-				"@web/*":  "apps/web/src/*",
-			},
-			"tsconfigPaths": map[string]string{
-				"@/*": "src/*",
-			},
-		})
+		result, err := detectors.DetectWorkspace(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
