@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maximilianfalco/mycelium/internal/indexer"
 )
 
 func DebugRoutes() chi.Router {
@@ -38,30 +39,13 @@ func debugCrawl() http.HandlerFunc {
 			return
 		}
 
-		mockFiles := []map[string]any{
-			{"absPath": req.Path + "/src/index.ts", "relPath": "src/index.ts", "extension": ".ts", "sizeBytes": 1240},
-			{"absPath": req.Path + "/src/utils/helpers.ts", "relPath": "src/utils/helpers.ts", "extension": ".ts", "sizeBytes": 890},
-			{"absPath": req.Path + "/src/components/Button.tsx", "relPath": "src/components/Button.tsx", "extension": ".tsx", "sizeBytes": 2100},
-			{"absPath": req.Path + "/src/components/Card.tsx", "relPath": "src/components/Card.tsx", "extension": ".tsx", "sizeBytes": 1560},
-			{"absPath": req.Path + "/src/lib/api.ts", "relPath": "src/lib/api.ts", "extension": ".ts", "sizeBytes": 3400},
-			{"absPath": req.Path + "/package.json", "relPath": "package.json", "extension": ".json", "sizeBytes": 720},
-			{"absPath": req.Path + "/tsconfig.json", "relPath": "tsconfig.json", "extension": ".json", "sizeBytes": 340},
-			{"absPath": req.Path + "/README.md", "relPath": "README.md", "extension": ".md", "sizeBytes": 1800},
+		result, err := indexer.CrawlDirectory(req.Path, true)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"files": mockFiles,
-			"stats": map[string]any{
-				"total":   8,
-				"skipped": 42,
-				"byExtension": map[string]int{
-					".ts":   3,
-					".tsx":  2,
-					".json": 2,
-					".md":   1,
-				},
-			},
-		})
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
