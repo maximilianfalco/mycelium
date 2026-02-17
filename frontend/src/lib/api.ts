@@ -136,6 +136,12 @@ export interface WorkspaceResponse {
   tsconfigPaths: Record<string, string>;
 }
 
+export interface ReadFileResponse {
+  content: string;
+  language: string;
+  lineCount: number;
+}
+
 export interface ChangesResponse {
   isGitRepo: boolean;
   currentCommit: string;
@@ -248,6 +254,11 @@ export const api = {
       request<ChangesResponse>("/debug/changes", {
         method: "POST",
         body: JSON.stringify({ path }),
+      }),
+    readFile: (filePath: string) =>
+      request<ReadFileResponse>("/debug/read-file", {
+        method: "POST",
+        body: JSON.stringify({ filePath }),
       }),
   },
 };

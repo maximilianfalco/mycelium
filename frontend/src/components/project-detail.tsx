@@ -21,6 +21,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { DebugTab } from "@/components/debug/debug-tab";
+import {
+  CodeViewer,
+  type CodeViewerFile,
+} from "@/components/debug/code-viewer";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
 
@@ -60,6 +64,7 @@ export function ProjectDetail({
   const [sending, setSending] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewerFile, setViewerFile] = useState<CodeViewerFile | null>(null);
 
   const load = async () => {
     try {
@@ -158,274 +163,329 @@ export function ProjectDetail({
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-10">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <button
-            onClick={() => router.push("/")}
-            className="text-xs text-muted-foreground hover:text-foreground mb-1 block"
-          >
-            &larr; colonies
-          </button>
-          <h1 className="text-lg font-medium">{project.name}</h1>
-          {project.description && (
-            <p className="text-sm text-muted-foreground">
-              {project.description}
-            </p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <SettingsPanel
-            projectId={id}
-            settings={project.settings ?? {}}
-            onSave={load}
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setDeleteOpen(true)}
-          >
-            delete
-          </Button>
-        </div>
-      </div>
-
-      <ConfirmationDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="delete colony"
-        body="this will permanently delete this colony and all its linked substrates. this cannot be undone."
-        cancel="cancel"
-        yes="delete"
-        onCancel={() => setDeleteOpen(false)}
-        onAccept={handleDelete}
-      />
-
-      {indexStatus && (
-        <div className="flex gap-4 mb-6 text-xs text-muted-foreground">
-          <span>{indexStatus.nodeCount} nodes</span>
-          <span>{indexStatus.edgeCount} edges</span>
-          <span>status: {indexStatus.status}</span>
-        </div>
-      )}
-
-      <div className="flex gap-4 border-b border-border mb-6">
-        <button
-          className={`pb-2 text-sm ${tab === "sources" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
-          onClick={() => setTab("sources")}
-        >
-          substrates
-        </button>
-        <button
-          className={`pb-2 text-sm ${tab === "chat" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
-          onClick={() => setTab("chat")}
-        >
-          forage
-        </button>
-        <button
-          className={`pb-2 text-sm ${tab === "debug" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
-          onClick={() => setTab("debug")}
-        >
-          spore lab
-        </button>
-        <button
-          className={`pb-2 text-sm ${tab === "graph" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
-          onClick={() => setTab("graph")}
-        >
-          mycelial map
-        </button>
-      </div>
-
-      {tab === "sources" && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm text-muted-foreground">
-              {sources.length} linked substrate{sources.length !== 1 ? "s" : ""}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={handleIndex}>
-                decompose
-              </Button>
-              <Dialog open={scanOpen} onOpenChange={setScanOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="secondary" size="sm">
-                    + feed
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>feed substrate</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 pt-2">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="directory path"
-                        value={scanPath}
-                        onChange={(e) => setScanPath(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleScan()}
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={handleScan}
-                        disabled={scanning}
-                      >
-                        {scanning ? "scanning..." : "scan"}
-                      </Button>
-                    </div>
-                    {scanResults.length > 0 && (
-                      <div className="border border-border max-h-64 overflow-y-auto">
-                        {scanResults.map((r) => (
-                          <label
-                            key={r.path}
-                            className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 cursor-pointer text-sm"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selected.has(r.path)}
-                              onChange={() => toggleSelect(r.path)}
-                              className="accent-primary"
-                            />
-                            <span className="flex-1 truncate">{r.name}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {r.sourceType}
-                            </Badge>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    {selected.size > 0 && (
-                      <Button onClick={handleLink} className="w-full">
-                        link {selected.size} substrate
-                        {selected.size !== 1 ? "s" : ""}
-                      </Button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setScanOpen(false);
-                        setSettingsOpen(true);
-                      }}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      change source directory
-                    </button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
-          {sources.length === 0 ? (
-            <div className="border border-dashed border-border py-12 text-center">
+    <div
+      className={
+        viewerFile
+          ? "flex h-screen overflow-hidden"
+          : "max-w-5xl mx-auto px-6 py-10"
+      }
+    >
+      <div
+        className={
+          viewerFile ? "flex-1 min-w-0 overflow-y-auto px-6 py-10" : "contents"
+        }
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <button
+              onClick={() => router.push("/")}
+              className="text-xs text-muted-foreground hover:text-foreground mb-1 block"
+              title="Back to colonies"
+            >
+              &larr; colonies
+            </button>
+            <h1 className="text-lg font-medium">{project.name}</h1>
+            {project.description && (
               <p className="text-sm text-muted-foreground">
-                no substrates linked
+                {project.description}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                feed this colony with local repos or directories
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {sources.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between px-3 py-2 border border-border"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-sm truncate">
-                      {s.alias || s.path}
-                    </span>
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      {s.sourceType}
-                    </Badge>
-                    <Badge
-                      variant={s.isCode ? "default" : "secondary"}
-                      className="text-xs shrink-0"
-                    >
-                      {s.isCode ? "code" : "non-code"}
-                    </Badge>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveSource(s.id)}
-                    className="text-xs text-muted-foreground hover:text-destructive ml-2"
-                  >
-                    remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "chat" && (
-        <div className="flex flex-col h-[60vh]">
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-            {messages.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-16">
-                ask questions about your indexed code
-              </p>
-            )}
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`chat-message text-sm px-3 py-2 ${
-                  m.role === "user"
-                    ? "bg-accent/50 ml-12"
-                    : "bg-card border border-border mr-12"
-                }`}
-              >
-                <span className="text-xs text-muted-foreground block mb-1">
-                  {m.role === "user" ? "you" : "mycelium"}
-                </span>
-                {m.content}
-              </div>
-            ))}
-            {sending && (
-              <div className="text-sm text-muted-foreground px-3 py-2">
-                thinking...
-              </div>
             )}
           </div>
           <div className="flex gap-2">
-            <Textarea
-              placeholder="ask about your codebase..."
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleChat();
-                }
-              }}
-              rows={2}
-              className="flex-1 resize-none"
+            <SettingsPanel
+              projectId={id}
+              settings={project.settings ?? {}}
+              onSave={load}
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
             />
             <Button
-              onClick={handleChat}
-              disabled={!chatInput.trim() || sending}
-              className="h-full"
+              variant="secondary"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              title="Delete colony"
             >
-              send
+              delete
             </Button>
           </div>
         </div>
-      )}
 
-      {tab === "debug" && (
-        <DebugTab
-          key={project.settings?.rootPath ?? ""}
-          rootPath={project.settings?.rootPath}
-          maxFileSizeKB={project.settings?.maxFileSizeKB}
+        <ConfirmationDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title="delete colony"
+          body="this will permanently delete this colony and all its linked substrates. this cannot be undone."
+          cancel="cancel"
+          yes="delete"
+          onCancel={() => setDeleteOpen(false)}
+          onAccept={handleDelete}
         />
-      )}
 
-      {tab === "graph" && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icon.svg" alt="" width={64} height={64} className="mb-6" />
-          <p className="text-sm text-muted-foreground">coming soon</p>
+        {indexStatus && (
+          <div className="flex gap-4 mb-6 text-xs text-muted-foreground">
+            <span>{indexStatus.nodeCount} nodes</span>
+            <span>{indexStatus.edgeCount} edges</span>
+            <span>status: {indexStatus.status}</span>
+          </div>
+        )}
+
+        <div className="flex gap-4 border-b border-border mb-6">
+          <button
+            className={`pb-2 text-sm ${tab === "sources" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setTab("sources")}
+            title="Substrates"
+          >
+            substrates
+          </button>
+          <button
+            className={`pb-2 text-sm ${tab === "chat" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setTab("chat")}
+            title="Forage"
+          >
+            forage
+          </button>
+          <button
+            className={`pb-2 text-sm ${tab === "debug" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setTab("debug")}
+            title="Spore lab"
+          >
+            spore lab
+          </button>
+          <button
+            className={`pb-2 text-sm ${tab === "graph" ? "border-b border-foreground text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setTab("graph")}
+            title="Mycelial map"
+          >
+            mycelial map
+          </button>
+        </div>
+
+        {tab === "sources" && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-muted-foreground">
+                {sources.length} linked substrate
+                {sources.length !== 1 ? "s" : ""}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleIndex}
+                  title="Decompose"
+                >
+                  decompose
+                </Button>
+                <Dialog open={scanOpen} onOpenChange={setScanOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      title="Feed substrate"
+                    >
+                      + feed
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>feed substrate</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-2">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="directory path"
+                          value={scanPath}
+                          onChange={(e) => setScanPath(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleScan()}
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={handleScan}
+                          disabled={scanning}
+                          title="Scan directory"
+                        >
+                          {scanning ? "scanning..." : "scan"}
+                        </Button>
+                      </div>
+                      {scanResults.length > 0 && (
+                        <div className="border border-border max-h-64 overflow-y-auto">
+                          {scanResults.map((r) => (
+                            <label
+                              key={r.path}
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 cursor-pointer text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected.has(r.path)}
+                                onChange={() => toggleSelect(r.path)}
+                                className="accent-primary"
+                              />
+                              <span className="flex-1 truncate">{r.name}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {r.sourceType}
+                              </Badge>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {selected.size > 0 && (
+                        <Button
+                          onClick={handleLink}
+                          className="w-full"
+                          title="Link substrates"
+                        >
+                          link {selected.size} substrate
+                          {selected.size !== 1 ? "s" : ""}
+                        </Button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setScanOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                        title="Change source directory"
+                      >
+                        change source directory
+                      </button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+
+            {sources.length === 0 ? (
+              <div className="border border-dashed border-border py-12 text-center">
+                <p className="text-sm text-muted-foreground">
+                  no substrates linked
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  feed this colony with local repos or directories
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {sources.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between px-3 py-2 border border-border"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-sm truncate">
+                        {s.alias || s.path}
+                      </span>
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {s.sourceType}
+                      </Badge>
+                      <Badge
+                        variant={s.isCode ? "default" : "secondary"}
+                        className="text-xs shrink-0"
+                      >
+                        {s.isCode ? "code" : "non-code"}
+                      </Badge>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveSource(s.id)}
+                      className="text-xs text-muted-foreground hover:text-destructive ml-2"
+                      title="Remove substrate"
+                    >
+                      remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "chat" && (
+          <div className="flex flex-col h-[60vh]">
+            <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+              {messages.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-16">
+                  ask questions about your indexed code
+                </p>
+              )}
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`chat-message text-sm px-3 py-2 ${
+                    m.role === "user"
+                      ? "bg-accent/50 ml-12"
+                      : "bg-card border border-border mr-12"
+                  }`}
+                >
+                  <span className="text-xs text-muted-foreground block mb-1">
+                    {m.role === "user" ? "you" : "mycelium"}
+                  </span>
+                  {m.content}
+                </div>
+              ))}
+              {sending && (
+                <div className="text-sm text-muted-foreground px-3 py-2">
+                  thinking...
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Textarea
+                placeholder="ask about your codebase..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleChat();
+                  }
+                }}
+                rows={2}
+                className="flex-1 resize-none"
+              />
+              <Button
+                onClick={handleChat}
+                disabled={!chatInput.trim() || sending}
+                className="h-full"
+                title="Send message"
+              >
+                send
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {tab === "debug" && (
+          <DebugTab
+            key={project.settings?.rootPath ?? ""}
+            rootPath={project.settings?.rootPath}
+            maxFileSizeKB={project.settings?.maxFileSizeKB}
+            onOpenFile={(absPath, scrollToLine, highlightEndLine) =>
+              setViewerFile({
+                filePath: absPath,
+                scrollToLine,
+                highlightEndLine,
+              })
+            }
+          />
+        )}
+
+        {tab === "graph" && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icon.svg"
+              alt=""
+              width={64}
+              height={64}
+              className="mb-6"
+            />
+            <p className="text-sm text-muted-foreground">coming soon</p>
+          </div>
+        )}
+      </div>
+
+      {viewerFile && (
+        <div className="w-[45vw] shrink-0 border-l border-border bg-background">
+          <CodeViewer file={viewerFile} onClose={() => setViewerFile(null)} />
         </div>
       )}
     </div>

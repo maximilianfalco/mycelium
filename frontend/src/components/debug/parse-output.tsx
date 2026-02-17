@@ -9,7 +9,13 @@ import { TruncatedText } from "@/components/ui/truncated-text";
 
 const EDGE_ROW_HEIGHT = 32;
 
-export function ParseOutput({ data }: { data: ParseResponse }) {
+export function ParseOutput({
+  data,
+  onViewSource,
+}: {
+  data: ParseResponse;
+  onViewSource?: (filePath: string, startLine: number, endLine: number) => void;
+}) {
   const edgeParentRef = useRef<HTMLDivElement>(null);
   const edgeVirtualizer = useVirtualizer({
     count: data.edges.length,
@@ -41,7 +47,7 @@ export function ParseOutput({ data }: { data: ParseResponse }) {
           {data.nodes.map((node) => (
             <div
               key={node.qualifiedName}
-              className="border border-border px-3 py-2"
+              className="node-card border border-border px-3 py-2"
             >
               <div className="flex items-center gap-2 mb-1 min-w-0">
                 <Badge variant="outline" className="text-xs shrink-0">
@@ -77,8 +83,19 @@ export function ParseOutput({ data }: { data: ParseResponse }) {
                     </pre>
                     {hasMore && (
                       <button
-                        onClick={() => console.log(node)}
+                        onClick={() => {
+                          if (onViewSource) {
+                            onViewSource(
+                              node.qualifiedName,
+                              node.startLine,
+                              node.endLine,
+                            );
+                          } else {
+                            console.log(node);
+                          }
+                        }}
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-2 cursor-pointer"
+                        title="View full source"
                       >
                         <ExpandIcon className="size-3" />
                         <span>View more ({lines.length} lines)</span>

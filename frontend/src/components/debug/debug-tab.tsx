@@ -20,9 +20,15 @@ import { EmbeddingPlayground } from "./embedding-playground";
 export function DebugTab({
   rootPath,
   maxFileSizeKB = 100,
+  onOpenFile,
 }: {
   rootPath?: string;
   maxFileSizeKB?: number;
+  onOpenFile?: (
+    absPath: string,
+    scrollToLine?: number,
+    highlightEndLine?: number,
+  ) => void;
 }) {
   const [path, setPath] = useState(rootPath || "~/Desktop/Code");
   const [filePath, setFilePath] = useState("");
@@ -44,10 +50,14 @@ export function DebugTab({
       <div className="space-y-4">
         <div className="space-y-2">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">
+            <label
+              htmlFor="debug-target-path"
+              className="text-xs text-muted-foreground block mb-1"
+            >
               target path
             </label>
             <Input
+              id="debug-target-path"
               placeholder="~/Desktop/Code/my-project"
               value={path}
               onChange={(e) => setPath(e.target.value)}
@@ -55,10 +65,14 @@ export function DebugTab({
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">
+            <label
+              htmlFor="debug-file-path"
+              className="text-xs text-muted-foreground block mb-1"
+            >
               file path (for parse)
             </label>
             <Input
+              id="debug-file-path"
               placeholder="~/Desktop/Code/my-project/src/index.ts"
               value={filePath}
               onChange={(e) => setFilePath(e.target.value)}
@@ -112,6 +126,9 @@ export function DebugTab({
                   const abs = expandPath(path) + "/" + relPath;
                   setFilePath(abs);
                 }}
+                onOpenFile={
+                  onOpenFile ? (absPath) => onOpenFile(absPath) : undefined
+                }
               />
             )}
           </StageCard>
@@ -120,14 +137,31 @@ export function DebugTab({
             title="stage 3: parse"
             description="parse a single file into nodes and edges"
             onRun={async () => {
-              const res = await api.debug.parse(
-                expandPath(filePath || path + "/src/index.ts"),
-              );
+              const target =
+                filePath ||
+                crawlData?.files?.[0]?.absPath ||
+                path + "/src/index.ts";
+              const res = await api.debug.parse(expandPath(target));
               setParseData(res);
             }}
             disabled={!path.trim()}
           >
-            {parseData && <ParseOutput data={parseData} />}
+            {parseData && (
+              <ParseOutput
+                data={parseData}
+                onViewSource={
+                  onOpenFile
+                    ? (_name, startLine, endLine) => {
+                        const target =
+                          filePath ||
+                          crawlData?.files?.[0]?.absPath ||
+                          path + "/src/index.ts";
+                        onOpenFile(expandPath(target), startLine, endLine);
+                      }
+                    : undefined
+                }
+              />
+            )}
           </StageCard>
         </div>
 

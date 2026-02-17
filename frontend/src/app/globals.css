@@ -178,6 +178,45 @@
     content-visibility: auto;
     contain-intrinsic-size: 0 60px;
   }
+
+  .node-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 120px;
+  }
+
+  .code-viewer pre {
+    background: transparent !important;
+    margin: 0;
+    padding: 0.75rem 0;
+  }
+
+  .code-viewer code {
+    counter-reset: line;
+    font-family: var(--font-mono);
+  }
+
+  .code-viewer .line {
+    display: inline-block;
+    width: 100%;
+    padding: 0 0.75rem;
+  }
+
+  .code-viewer .line::before {
+    counter-increment: line;
+    content: counter(line);
+    display: inline-block;
+    width: 2.5rem;
+    margin-right: 1rem;
+    text-align: right;
+    color: var(--muted-foreground);
+    opacity: 0.4;
+    user-select: none;
+    font-size: 0.7rem;
+  }
+
+  .code-viewer .line.highlighted {
+    background: oklch(0.4 0.05 250 / 0.2);
+  }
 }
 
 @layer base {

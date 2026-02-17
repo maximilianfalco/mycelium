@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import fuzzysort from "fuzzysort";
-import { ArrowUpRightIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, EyeIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { CrawlFile, CrawlResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ function formatKB(bytes: number): string {
 }
 
 const ROW_HEIGHT = 33;
+const WHITESPACE_RE = /\s+/;
 
 type SearchMode = "exact" | "fuzzy";
 
@@ -34,27 +35,31 @@ export function CrawlOutput({
   data,
   maxFileSizeKB = 100,
   onSelectFile,
+  onOpenFile,
 }: {
   data: CrawlResponse;
   maxFileSizeKB?: number;
   onSelectFile?: (relPath: string) => void;
+  onOpenFile?: (absPath: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<SearchMode>("exact");
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return data.files;
+    const trimmed = search.trim();
+    if (!trimmed) return data.files;
+    if (data.files.length === 0) return data.files;
 
     if (mode === "exact") {
-      const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+      const terms = trimmed.toLowerCase().split(WHITESPACE_RE);
       return data.files.filter((f) => {
         const path = f.relPath.toLowerCase();
         return terms.every((t) => path.includes(t));
       });
     }
 
-    const results = fuzzysort.go(search, data.files, {
+    const results = fuzzysort.go(trimmed, data.files, {
       keys: ["relPath"],
       threshold: -1000,
     });
@@ -96,6 +101,8 @@ export function CrawlOutput({
             <button
               onClick={() => setSearch("")}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+              title="Clear search"
             >
               <XIcon className="size-3.5" />
             </button>
@@ -107,6 +114,7 @@ export function CrawlOutput({
             size="sm"
             className="h-8 px-2.5 text-xs rounded-none"
             onClick={() => setMode("exact")}
+            title="Exact match"
           >
             exact
           </Button>
@@ -115,18 +123,22 @@ export function CrawlOutput({
             size="sm"
             className="h-8 px-2.5 text-xs rounded-none"
             onClick={() => setMode("fuzzy")}
+            title="Fuzzy match"
           >
             fuzzy
           </Button>
         </div>
       </div>
       <div className="border border-border">
-        <div className="grid grid-cols-[1fr_80px_80px] text-xs text-muted-foreground border-b border-border">
+        <div
+          className={`grid text-xs text-muted-foreground border-b border-border ${onOpenFile ? "grid-cols-[1fr_80px_80px_36px]" : "grid-cols-[1fr_80px_80px]"}`}
+        >
           <span className="px-3 py-1.5">
             path{search.trim() && ` (${filtered.length} matched)`}
           </span>
           <span className="px-3 py-1.5 text-center">ext</span>
           <span className="px-3 py-1.5 text-right">size</span>
+          {onOpenFile && <span />}
         </div>
         <div ref={scrollRef} className="max-h-64 overflow-y-auto">
           <div
@@ -137,7 +149,7 @@ export function CrawlOutput({
               return (
                 <div
                   key={f.relPath}
-                  className="grid grid-cols-[1fr_80px_80px] border-b border-border last:border-0 items-center"
+                  className={`grid border-b border-border last:border-0 items-center ${onOpenFile ? "grid-cols-[1fr_80px_80px_36px]" : "grid-cols-[1fr_80px_80px]"}`}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -148,23 +160,30 @@ export function CrawlOutput({
                   }}
                 >
                   <span className="px-3 py-1.5 font-mono text-xs min-w-0 flex items-center gap-1 group">
-                    <span
-                      className="truncate cursor-pointer hover:text-foreground"
+                    <button
+                      className="truncate cursor-pointer hover:text-foreground text-left"
                       onClick={() => {
                         navigator.clipboard.writeText(f.relPath);
                         toast("copied to clipboard", {
                           description: f.relPath,
                         });
                       }}
-                      title="click to copy"
+                      aria-label={`Copy path ${f.relPath}`}
+                      title="Copy path"
                     >
                       <TruncatedText>{f.relPath}</TruncatedText>
-                    </span>
+                    </button>
                     {onSelectFile && (
                       <button
-                        onClick={() => onSelectFile(f.relPath)}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                        title="use as parse target"
+                        onClick={() => {
+                          onSelectFile(f.relPath);
+                          toast("file path set!", {
+                            description: f.relPath,
+                          });
+                        }}
+                        className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-foreground"
+                        aria-label={`Use ${f.relPath} as parse target`}
+                        title="Set as parse target"
                       >
                         <ArrowUpRightIcon className="size-3" />
                       </button>
@@ -178,6 +197,18 @@ export function CrawlOutput({
                   <span className="px-3 py-1.5 text-right text-xs text-muted-foreground">
                     {formatKB(f.sizeBytes)} KB
                   </span>
+                  {onOpenFile && (
+                    <span className="flex justify-center">
+                      <button
+                        onClick={() => onOpenFile(f.absPath)}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={`View ${f.relPath}`}
+                        title="View file"
+                      >
+                        <EyeIcon className="size-3.5" />
+                      </button>
+                    </span>
+                  )}
                 </div>
               );
             })}

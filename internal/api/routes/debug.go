@@ -22,6 +22,7 @@ func DebugRoutes() chi.Router {
 	r.Post("/crawl", debugCrawl())
 	r.Post("/parse", debugParse())
 	r.Post("/resolve", debugResolve())
+	r.Post("/read-file", debugReadFile())
 	r.Post("/embed-text", debugEmbedText())
 	r.Post("/compare", debugCompare())
 	r.Post("/workspace", debugWorkspace())
@@ -171,6 +172,37 @@ func debugResolve() http.HandlerFunc {
 			"unresolved":  resolveResult.Unresolved,
 			"dependsOn":   resolveResult.DependsOn,
 			"parseErrors": parseErrors,
+		})
+	}
+}
+
+func debugReadFile() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.FilePath == "" {
+			writeError(w, http.StatusBadRequest, "filePath is required")
+			return
+		}
+
+		content, err := os.ReadFile(req.FilePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("reading file: %v", err))
+			return
+		}
+
+		ext := strings.TrimPrefix(filepath.Ext(req.FilePath), ".")
+		lines := strings.Count(string(content), "\n") + 1
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"content":   string(content),
+			"language":  ext,
+			"lineCount": lines,
 		})
 	}
 }

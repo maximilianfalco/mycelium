@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function StageCard({
@@ -17,20 +18,19 @@ export function StageCard({
   children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [hasRun, setHasRun] = useState(false);
 
-  const handleRun = async () => {
-    setLoading(true);
-    try {
-      await onRun();
-      setHasRun(true);
-      setOpen(true);
-    } catch {
-      // error handled by parent
-    } finally {
-      setLoading(false);
-    }
+  const handleRun = () => {
+    startTransition(async () => {
+      try {
+        await onRun();
+        setHasRun(true);
+        setOpen(true);
+      } catch {
+        // error handled by parent
+      }
+    });
   };
 
   return (
@@ -40,6 +40,8 @@ export function StageCard({
           <button
             onClick={() => hasRun && setOpen(!open)}
             className="text-sm font-medium text-foreground hover:underline"
+            aria-expanded={hasRun ? open : undefined}
+            title={title}
           >
             {title}
           </button>
@@ -49,12 +51,18 @@ export function StageCard({
           variant="secondary"
           size="sm"
           onClick={handleRun}
-          disabled={disabled || loading}
+          disabled={disabled || isPending}
+          title="Run stage"
         >
-          {loading ? "running..." : "run"}
+          {isPending ? "running..." : "run"}
         </Button>
       </div>
-      {open && hasRun && children && (
+      {isPending && (
+        <div className="border-t border-border flex items-center justify-center py-8">
+          <Loader2Icon className="size-4 motion-safe:animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {!isPending && open && hasRun && children && (
         <div className="border-t border-border px-4 py-3">{children}</div>
       )}
     </div>
