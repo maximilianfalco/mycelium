@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/maximilianfalco/mycelium/internal/config"
 	"github.com/maximilianfalco/mycelium/internal/projects"
@@ -13,6 +14,11 @@ import (
 
 func ProjectRoutes(pool *pgxpool.Pool, cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
+
+	var oaiClient *openai.Client
+	if cfg.OpenAIAPIKey != "" {
+		oaiClient = openai.NewClient(cfg.OpenAIAPIKey)
+	}
 
 	r.Post("/", createProject(pool))
 	r.Get("/", listProjects(pool))
@@ -28,7 +34,7 @@ func ProjectRoutes(pool *pgxpool.Pool, cfg *config.Config) chi.Router {
 		r.Delete("/sources/{sourceID}", removeSource(pool))
 
 		r.Mount("/index", IndexingRoutes(pool, cfg))
-		r.Mount("/chat", ChatRoutes())
+		r.Mount("/chat", ChatRoutes(pool, oaiClient, cfg))
 	})
 
 	return r

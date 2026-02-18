@@ -63,7 +63,11 @@ export function ProjectDetail({
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [messages, setMessages] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
+    Array<{
+      role: "user" | "assistant";
+      content: string;
+      sources?: Array<{ nodeId: string; filePath: string; qualifiedName: string }>;
+    }>
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -211,7 +215,11 @@ export function ProjectDetail({
       const res = await api.chat.send(id, msg);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: res.message },
+        {
+          role: "assistant",
+          content: res.message,
+          sources: res.sources?.length ? res.sources : undefined,
+        },
       ]);
     } catch {
       setMessages((prev) => [
@@ -524,7 +532,25 @@ export function ProjectDetail({
                   <span className="text-xs text-muted-foreground block mb-1">
                     {m.role === "user" ? "you" : "mycelium"}
                   </span>
-                  {m.content}
+                  <div className="whitespace-pre-wrap">{m.content}</div>
+                  {m.sources && m.sources.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-border">
+                      <span className="text-xs text-muted-foreground block mb-1">
+                        sources
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {m.sources.map((s, j) => (
+                          <span
+                            key={j}
+                            className="text-xs bg-accent/50 px-2 py-0.5 font-mono truncate max-w-[300px]"
+                            title={`${s.filePath} — ${s.qualifiedName}`}
+                          >
+                            {s.qualifiedName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {sending && (
