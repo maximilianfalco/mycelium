@@ -231,10 +231,13 @@ export const api = {
     }),
 
   indexing: {
-    trigger: (projectId: string) =>
+    trigger: (projectId: string, force?: boolean) =>
       request<{ status: string; jobId: string }>(
         `/projects/${projectId}/index`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({ force: force ?? false }),
+        },
       ),
     status: (projectId: string) =>
       request<IndexStatus>(`/projects/${projectId}/index/status`),

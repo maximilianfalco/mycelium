@@ -198,9 +198,9 @@ export function ProjectDetail({
     return stopPolling;
   }, [initialIndexStatus?.status, startPolling, stopPolling]);
 
-  const handleIndex = async () => {
+  const handleIndex = async (force?: boolean) => {
     try {
-      await api.indexing.trigger(id);
+      await api.indexing.trigger(id, force);
       setIndexing(true);
       const idx = await api.indexing.status(id);
       setIndexStatus(idx);
@@ -329,6 +329,7 @@ export function ProjectDetail({
               projectId={id}
               settings={project.settings ?? {}}
               onSave={load}
+              onReindex={() => handleIndex(true)}
               open={settingsOpen}
               onOpenChange={setSettingsOpen}
             />
@@ -435,7 +436,7 @@ export function ProjectDetail({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={handleIndex}
+                  onClick={() => handleIndex()}
                   disabled={indexing}
                   title="Decompose"
                 >

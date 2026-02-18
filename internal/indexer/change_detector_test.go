@@ -61,7 +61,7 @@ func TestDetectChanges_FirstIndex(t *testing.T) {
 	gitCommit(t, dir, "initial")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, nil, nil, 100)
+	cs, err := DetectChanges(ctx, dir, nil, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestDetectChanges_NoChanges(t *testing.T) {
 	commit := gitCommit(t, dir, "initial")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestDetectChanges_AddedFile(t *testing.T) {
 	gitCommit(t, dir, "add new.ts")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestDetectChanges_ModifiedFile(t *testing.T) {
 	gitCommit(t, dir, "modify main.go")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestDetectChanges_DeletedFile(t *testing.T) {
 	gitCommit(t, dir, "delete old.ts")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestDetectChanges_RenamedFile(t *testing.T) {
 	gitCommit(t, dir, "rename old.ts -> new.ts")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestDetectChanges_FiltersNonCodeFiles(t *testing.T) {
 	gitCommit(t, dir, "add various files")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestDetectChanges_FiltersSkipDirs(t *testing.T) {
 	gitCommit(t, dir, "add files in skip dirs")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestDetectChanges_ThresholdExceeded(t *testing.T) {
 	gitCommit(t, dir, "add many files")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 3)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 3, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestDetectChanges_InvalidLastCommit(t *testing.T) {
 
 	badCommit := "0000000000000000000000000000000000000000"
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &badCommit, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &badCommit, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestDetectChanges_NonGitDirectory(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "app.ts"), 200)
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, nil, nil, 100)
+	cs, err := DetectChanges(ctx, dir, nil, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestDetectChanges_MtimeModified(t *testing.T) {
 	indexTime := time.Now().Add(-30 * time.Minute)
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, nil, &indexTime, 100)
+	cs, err := DetectChanges(ctx, dir, nil, &indexTime, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestDetectChanges_EmptyGitRepo(t *testing.T) {
 	// No commits at all
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, nil, nil, 100)
+	cs, err := DetectChanges(ctx, dir, nil, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestDetectChanges_BranchInfo(t *testing.T) {
 	commit := gitCommit(t, dir, "add on branch")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestDetectChanges_MixedChanges(t *testing.T) {
 	gitCommit(t, dir, "mixed changes")
 
 	ctx := context.Background()
-	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100)
+	cs, err := DetectChanges(ctx, dir, &commit1, nil, 100, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

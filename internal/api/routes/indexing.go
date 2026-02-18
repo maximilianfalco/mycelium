@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -34,9 +35,17 @@ func triggerIndex(pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Clie
 	return func(w http.ResponseWriter, r *http.Request) {
 		projectID := chi.URLParam(r, "id")
 
-		// Check if already running
+		// Parse optional request body for force flag
+		var body struct {
+			Force bool `json:"force"`
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+		}
+
+		// Check if already running (skip when force — user explicitly requested reindex)
 		existing := statusStore.GetByProject(projectID)
-		if existing != nil && existing.Status == "running" {
+		if !body.Force && existing != nil && existing.Status == "running" {
 			writeError(w, http.StatusConflict, "indexing already in progress for this project")
 			return
 		}
@@ -53,8 +62,9 @@ func triggerIndex(pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Clie
 
 		// Run indexing in background — use a detached context so the job
 		// isn't cancelled when the HTTP response is sent.
+		force := body.Force
 		go func() {
-			result := indexer.IndexProject(context.Background(), pool, cfg, oaiClient, projectID, status)
+			result := indexer.IndexProject(context.Background(), pool, cfg, oaiClient, projectID, status, force)
 			now := time.Now()
 			status.DoneAt = &now
 			status.Result = result

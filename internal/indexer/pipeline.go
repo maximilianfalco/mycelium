@@ -92,7 +92,8 @@ func (s *StatusStore) GetByProject(projectID string) *IndexStatus {
 var activeJobs sync.Map
 
 // IndexProject runs the full indexing pipeline for a project.
-func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Client, projectID string, status *IndexStatus) *IndexResult {
+// When force is true, all sources are fully re-indexed regardless of change thresholds.
+func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Client, projectID string, status *IndexStatus, force bool) *IndexResult {
 	start := time.Now()
 	result := &IndexResult{}
 
@@ -104,12 +105,17 @@ func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, o
 		slog.Info("pipeline", "project", projectID, "stage", stage, "progress", progress)
 	}
 
-	// Prevent concurrent indexing of the same project
-	if _, loaded := activeJobs.LoadOrStore(projectID, true); loaded {
-		result.Errors = append(result.Errors, "indexing already in progress for this project")
-		return result
+	// Prevent concurrent indexing of the same project (skip when force — user explicitly requested it)
+	if !force {
+		if _, loaded := activeJobs.LoadOrStore(projectID, true); loaded {
+			result.Errors = append(result.Errors, "indexing already in progress for this project")
+			return result
+		}
+		defer activeJobs.Delete(projectID)
+	} else {
+		activeJobs.Store(projectID, true)
+		defer activeJobs.Delete(projectID)
 	}
-	defer activeJobs.Delete(projectID)
 
 	// 1. Load project and sources
 	updateStatus("loading", "fetching project and sources")
@@ -138,7 +144,7 @@ func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, o
 
 		updateStatus("indexing", fmt.Sprintf("source %d/%d: %s", i+1, len(sources), source.Alias))
 
-		sourceResult, err := indexSource(ctx, pool, cfg, oaiClient, project.ID, &source, updateStatus)
+		sourceResult, err := indexSource(ctx, pool, cfg, oaiClient, project.ID, &source, updateStatus, force)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("source %s: %v", source.Alias, err))
 			continue
@@ -190,12 +196,13 @@ func indexSource(
 	projectID string,
 	source *projects.ProjectSource,
 	updateStatus func(stage, progress string),
+	force bool,
 ) (*sourceResult, error) {
 	result := &sourceResult{}
 
 	// Stage 0: Change detection
 	updateStatus("changes", fmt.Sprintf("detecting changes for %s", source.Alias))
-	changeSet, err := DetectChanges(ctx, source.Path, source.LastIndexedCommit, source.LastIndexedAt, cfg.MaxAutoReindexFiles)
+	changeSet, err := DetectChanges(ctx, source.Path, source.LastIndexedCommit, source.LastIndexedAt, cfg.MaxAutoReindexFiles, force)
 	if err != nil {
 		return nil, fmt.Errorf("change detection: %w", err)
 	}

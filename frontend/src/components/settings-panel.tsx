@@ -17,12 +17,14 @@ export function SettingsPanel({
   projectId,
   settings,
   onSave,
+  onReindex,
   open: externalOpen,
   onOpenChange: externalOnOpenChange,
 }: {
   projectId: string;
   settings: ProjectSettings;
   onSave: () => void;
+  onReindex?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -98,6 +100,26 @@ export function SettingsPanel({
           <Button onClick={handleSave} disabled={saving} className="w-full">
             {saving ? "saving..." : "save settings"}
           </Button>
+          <div className="border-t border-border pt-6 space-y-2">
+            <label className="text-sm text-muted-foreground">
+              reindex colony
+            </label>
+            <p className="text-xs text-muted-foreground">
+              force a full re-index of all sources, bypassing the file change
+              limit. use this after updating the indexing pipeline or if
+              incremental indexing is blocked.
+            </p>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setOpen(false);
+                onReindex?.();
+              }}
+              className="w-full"
+            >
+              reindex colony
+            </Button>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

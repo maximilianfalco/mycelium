@@ -346,7 +346,7 @@ func debugChanges() http.HandlerFunc {
 			return
 		}
 
-		cs, err := indexer.DetectChanges(r.Context(), req.Path, req.LastIndexedCommit, nil, 100)
+		cs, err := indexer.DetectChanges(r.Context(), req.Path, req.LastIndexedCommit, nil, 100, false)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("detecting changes: %v", err))
 			return

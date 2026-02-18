@@ -27,13 +27,36 @@ type ChangeSet struct {
 
 // DetectChanges compares the current state of sourcePath against its last indexed state.
 // For git repos, uses git diff. For plain directories, uses file mtime.
-func DetectChanges(ctx context.Context, sourcePath string, lastIndexedCommit *string, lastIndexedAt *time.Time, maxAutoReindexFiles int) (*ChangeSet, error) {
+// When force is true, always performs a full index regardless of threshold or previous state.
+func DetectChanges(ctx context.Context, sourcePath string, lastIndexedCommit *string, lastIndexedAt *time.Time, maxAutoReindexFiles int, force bool) (*ChangeSet, error) {
+	if force {
+		return detectForceFullIndex(ctx, sourcePath)
+	}
+
 	isGit := isGitRepo(ctx, sourcePath)
 
 	if isGit {
 		return detectGitChanges(ctx, sourcePath, lastIndexedCommit, maxAutoReindexFiles)
 	}
 	return detectMtimeChanges(sourcePath, lastIndexedAt, maxAutoReindexFiles)
+}
+
+// detectForceFullIndex builds a change set that forces a complete re-index of all files.
+func detectForceFullIndex(ctx context.Context, sourcePath string) (*ChangeSet, error) {
+	cs := &ChangeSet{
+		IsGitRepo:   isGitRepo(ctx, sourcePath),
+		IsFullIndex: true,
+	}
+
+	if cs.IsGitRepo {
+		commit, err := gitCurrentCommit(ctx, sourcePath)
+		if err == nil {
+			cs.CurrentCommit = commit
+		}
+		cs.CurrentBranch = gitCurrentBranch(ctx, sourcePath)
+	}
+
+	return populateFullIndex(cs, sourcePath)
 }
 
 func isGitRepo(ctx context.Context, path string) bool {
