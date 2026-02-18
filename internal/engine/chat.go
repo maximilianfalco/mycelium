@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	openai "github.com/sashabaranov/go-openai"
@@ -59,9 +60,81 @@ func Chat(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query 
 		return nil, fmt.Errorf("chat completion returned no choices")
 	}
 
-	sources := make([]Source, 0, len(assembled.Nodes))
+	return &ChatResponse{
+		Message: resp.Choices[0].Message.Content,
+		Sources: extractSources(assembled.Nodes),
+	}, nil
+}
+
+// ChatStreamResult holds the sources (known upfront from context assembly)
+// and the OpenAI stream to read deltas from.
+type ChatStreamResult struct {
+	Sources []Source
+	Stream  *openai.ChatCompletionStream
+}
+
+// ChatStream assembles context and opens a streaming chat completion.
+// The caller is responsible for reading from Stream and closing it.
+func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query string, projectID string, model string, maxContextTokens int) (*ChatStreamResult, error) {
+	assembled, err := AssembleContext(ctx, pool, client, query, projectID, maxContextTokens)
+	if err != nil {
+		return nil, fmt.Errorf("assemble context: %w", err)
+	}
+
+	stream, err := client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+		Model:  model,
+		Stream: true,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: systemPrompt + "\n\n" + assembled.Text,
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: query,
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("chat completion stream: %w", err)
+	}
+
+	sources := extractSources(assembled.Nodes)
+
+	return &ChatStreamResult{
+		Sources: sources,
+		Stream:  stream,
+	}, nil
+}
+
+// ReadStreamDeltas reads all deltas from a ChatCompletionStream and calls
+// onDelta for each text chunk. Returns the full accumulated message.
+func ReadStreamDeltas(stream *openai.ChatCompletionStream, onDelta func(delta string)) (string, error) {
+	defer stream.Close()
+
+	var full string
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			return full, nil
+		}
+		if err != nil {
+			return full, fmt.Errorf("stream recv: %w", err)
+		}
+		if len(resp.Choices) > 0 {
+			delta := resp.Choices[0].Delta.Content
+			if delta != "" {
+				full += delta
+				onDelta(delta)
+			}
+		}
+	}
+}
+
+func extractSources(nodes []ContextNode) []Source {
+	sources := make([]Source, 0, len(nodes))
 	seen := make(map[string]bool)
-	for _, n := range assembled.Nodes {
+	for _, n := range nodes {
 		if seen[n.NodeID] {
 			continue
 		}
@@ -72,9 +145,5 @@ func Chat(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query 
 			QualifiedName: n.QualifiedName,
 		})
 	}
-
-	return &ChatResponse{
-		Message: resp.Choices[0].Message.Content,
-		Sources: sources,
-	}, nil
+	return sources
 }
