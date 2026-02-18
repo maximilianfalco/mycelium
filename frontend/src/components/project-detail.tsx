@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   api,
@@ -130,9 +130,55 @@ export function ProjectDetail({
     load();
   };
 
+  const [indexing, setIndexing] = useState(
+    initialIndexStatus?.status === "running",
+  );
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const idx = await api.indexing.status(id);
+        setIndexStatus(idx);
+        if (idx.status !== "running") {
+          stopPolling();
+          setIndexing(false);
+          load();
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 1500);
+  }, [id, stopPolling]);
+
+  useEffect(() => {
+    if (initialIndexStatus?.status === "running") {
+      startPolling();
+    }
+    return stopPolling;
+  }, [initialIndexStatus?.status, startPolling, stopPolling]);
+
   const handleIndex = async () => {
-    await api.indexing.trigger(id);
-    load();
+    try {
+      await api.indexing.trigger(id);
+      setIndexing(true);
+      const idx = await api.indexing.status(id);
+      setIndexStatus(idx);
+      startPolling();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("already in progress")) {
+        setIndexing(true);
+        startPolling();
+      }
+    }
   };
 
   const handleChat = async () => {
@@ -222,10 +268,37 @@ export function ProjectDetail({
         />
 
         {indexStatus && (
-          <div className="flex gap-4 mb-6 text-xs text-muted-foreground">
-            <span>{indexStatus.nodeCount} nodes</span>
-            <span>{indexStatus.edgeCount} edges</span>
-            <span>status: {indexStatus.status}</span>
+          <div className="mb-6 space-y-1">
+            <div className="flex gap-4 text-xs text-muted-foreground">
+              <span>{indexStatus.nodeCount} nodes</span>
+              <span>{indexStatus.edgeCount} edges</span>
+              {indexStatus.lastIndexedAt && (
+                <span>
+                  indexed{" "}
+                  {new Date(indexStatus.lastIndexedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {indexStatus.status === "running" && indexStatus.progress && (
+              <div className="text-xs text-muted-foreground">
+                <span className="text-foreground">{indexStatus.stage}</span>
+                {" \u2014 "}
+                {indexStatus.progress}
+              </div>
+            )}
+            {indexStatus.status === "failed" && indexStatus.error && (
+              <div className="text-xs text-destructive">
+                failed: {indexStatus.error}
+              </div>
+            )}
+            {indexStatus.status === "completed" && indexStatus.result && (
+              <div className="text-xs text-muted-foreground">
+                indexed {indexStatus.result.sourcesProcessed} source
+                {indexStatus.result.sourcesProcessed !== 1 ? "s" : ""},{" "}
+                {indexStatus.result.totalEmbedded} embedded in{" "}
+                {(indexStatus.result.duration / 1e9).toFixed(1)}s
+              </div>
+            )}
           </div>
         )}
 
@@ -272,9 +345,10 @@ export function ProjectDetail({
                   variant="secondary"
                   size="sm"
                   onClick={handleIndex}
+                  disabled={indexing}
                   title="Decompose"
                 >
-                  decompose
+                  {indexing ? "decomposing..." : "decompose"}
                 </Button>
                 <Dialog open={scanOpen} onOpenChange={setScanOpen}>
                   <DialogTrigger asChild>

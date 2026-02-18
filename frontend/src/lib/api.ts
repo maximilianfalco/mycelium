@@ -51,11 +51,29 @@ export interface ScanResult {
   hasPackageJson: boolean;
 }
 
+export interface IndexResult {
+  sourcesProcessed: number;
+  sourcesSkipped: number;
+  totalNodes: number;
+  totalEdges: number;
+  totalEmbedded: number;
+  totalDeleted: number;
+  duration: number;
+  errors?: string[];
+}
+
 export interface IndexStatus {
   status: string;
   lastIndexedAt: string | null;
   nodeCount: number;
   edgeCount: number;
+  jobId?: string;
+  stage?: string;
+  progress?: string;
+  startedAt?: string;
+  doneAt?: string | null;
+  result?: IndexResult;
+  error?: string;
 }
 
 export interface ChatResponse {
