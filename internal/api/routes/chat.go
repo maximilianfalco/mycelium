@@ -27,7 +27,8 @@ func streamChat(pool *pgxpool.Pool, oaiClient *openai.Client, cfg *config.Config
 		projectID := chi.URLParam(r, "id")
 
 		var req struct {
-			Message string `json:"message"`
+			Message string               `json:"message"`
+			History []engine.ChatMessage `json:"history"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -42,7 +43,7 @@ func streamChat(pool *pgxpool.Pool, oaiClient *openai.Client, cfg *config.Config
 			return
 		}
 
-		result, err := engine.ChatStream(r.Context(), pool, oaiClient, req.Message, projectID, cfg.ChatModel, cfg.MaxContextTokens)
+		result, err := engine.ChatStream(r.Context(), pool, oaiClient, req.Message, projectID, cfg.ChatModel, cfg.MaxContextTokens, req.History)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

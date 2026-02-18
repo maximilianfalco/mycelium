@@ -77,6 +77,8 @@ export function ProjectDetail({
   const [sending, setSending] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -232,9 +234,17 @@ export function ProjectDetail({
 
     const assistantIdx = { current: -1 };
 
+    const history = messagesRef.current
+      .filter((m) => m.content)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
     const controller = api.chat.stream(
       id,
       msg,
+      history,
       (delta) => {
         setMessages((prev) => {
           const next = [...prev];

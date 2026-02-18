@@ -257,6 +257,7 @@ export const api = {
     stream: (
       projectId: string,
       message: string,
+      history: Array<{ role: string; content: string }>,
       onDelta: (delta: string) => void,
       onDone: (sources: ChatResponse["sources"]) => void,
       onError: (error: string) => void,
@@ -267,7 +268,7 @@ export const api = {
           const res = await fetch(`${API_BASE}/projects/${projectId}/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({ message, history }),
             signal: controller.signal,
           });
           if (!res.ok) {

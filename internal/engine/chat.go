@@ -73,27 +73,42 @@ type ChatStreamResult struct {
 	Stream  *openai.ChatCompletionStream
 }
 
+// ChatMessage represents a previous message in the conversation.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // ChatStream assembles context and opens a streaming chat completion.
 // The caller is responsible for reading from Stream and closing it.
-func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query string, projectID string, model string, maxContextTokens int) (*ChatStreamResult, error) {
+// history contains previous messages in the conversation (oldest first).
+func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query string, projectID string, model string, maxContextTokens int, history []ChatMessage) (*ChatStreamResult, error) {
 	assembled, err := AssembleContext(ctx, pool, client, query, projectID, maxContextTokens)
 	if err != nil {
 		return nil, fmt.Errorf("assemble context: %w", err)
 	}
 
-	stream, err := client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:  model,
-		Stream: true,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: systemPrompt + "\n\n" + assembled.Text,
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: query,
-			},
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt + "\n\n" + assembled.Text,
 		},
+	}
+	for _, m := range history {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		})
+	}
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: query,
+	})
+
+	stream, err := client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+		Model:    model,
+		Stream:   true,
+		Messages: messages,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("chat completion stream: %w", err)
