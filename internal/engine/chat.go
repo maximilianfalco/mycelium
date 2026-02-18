@@ -79,19 +79,55 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// needsCodeContext asks the LLM whether a query requires searching the codebase.
+// Returns false for greetings, small talk, and follow-ups that don't reference code.
+func needsCodeContext(ctx context.Context, client *openai.Client, query string) bool {
+	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:       "gpt-4o-mini",
+		MaxTokens:   1,
+		Temperature: 0,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "You classify whether a user query requires searching a codebase to answer. Reply with exactly one character: Y if the query asks about code, architecture, files, functions, bugs, or technical implementation. N if it's a greeting, small talk, meta-question about the conversation, or doesn't need code context.",
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: query,
+			},
+		},
+	})
+	if err != nil {
+		return true
+	}
+	if len(resp.Choices) > 0 && len(resp.Choices[0].Message.Content) > 0 {
+		return resp.Choices[0].Message.Content[0] == 'Y'
+	}
+	return true
+}
+
 // ChatStream assembles context and opens a streaming chat completion.
 // The caller is responsible for reading from Stream and closing it.
 // history contains previous messages in the conversation (oldest first).
 func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query string, projectID string, model string, maxContextTokens int, history []ChatMessage) (*ChatStreamResult, error) {
-	assembled, err := AssembleContext(ctx, pool, client, query, projectID, maxContextTokens)
-	if err != nil {
-		return nil, fmt.Errorf("assemble context: %w", err)
+	var systemContent string
+	var sources []Source
+
+	if needsCodeContext(ctx, client, query) {
+		assembled, err := AssembleContext(ctx, pool, client, query, projectID, maxContextTokens)
+		if err != nil {
+			return nil, fmt.Errorf("assemble context: %w", err)
+		}
+		systemContent = systemPrompt + "\n\n" + assembled.Text
+		sources = extractSources(assembled.Nodes)
+	} else {
+		systemContent = systemPrompt
 	}
 
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: systemPrompt + "\n\n" + assembled.Text,
+			Content: systemContent,
 		},
 	}
 	for _, m := range history {
@@ -113,8 +149,6 @@ func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, 
 	if err != nil {
 		return nil, fmt.Errorf("chat completion stream: %w", err)
 	}
-
-	sources := extractSources(assembled.Nodes)
 
 	return &ChatStreamResult{
 		Sources: sources,
