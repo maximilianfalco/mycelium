@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	openai "github.com/sashabaranov/go-openai"
@@ -39,12 +41,14 @@ func Chat(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, query 
 		return nil, fmt.Errorf("assemble context: %w", err)
 	}
 
+	projectCtx := buildProjectContext(ctx, pool, projectID)
+
 	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleSystem,
-				Content: systemPrompt + "\n\n" + assembled.Text,
+				Content: systemPrompt + "\n\n" + projectCtx + "\n\n" + assembled.Text,
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
@@ -113,15 +117,17 @@ func ChatStream(ctx context.Context, pool *pgxpool.Pool, client *openai.Client, 
 	var systemContent string
 	var sources []Source
 
+	projectCtx := buildProjectContext(ctx, pool, projectID)
+
 	if needsCodeContext(ctx, client, query) {
 		assembled, err := AssembleContext(ctx, pool, client, query, projectID, maxContextTokens)
 		if err != nil {
 			return nil, fmt.Errorf("assemble context: %w", err)
 		}
-		systemContent = systemPrompt + "\n\n" + assembled.Text
+		systemContent = systemPrompt + "\n\n" + projectCtx + "\n\n" + assembled.Text
 		sources = extractSources(assembled.Nodes)
 	} else {
-		systemContent = systemPrompt
+		systemContent = systemPrompt + "\n\n" + projectCtx
 	}
 
 	messages := []openai.ChatCompletionMessage{
@@ -178,6 +184,102 @@ func ReadStreamDeltas(stream *openai.ChatCompletionStream, onDelta func(delta st
 			}
 		}
 	}
+}
+
+// buildProjectContext queries project metadata and formats it as a preamble
+// for the system prompt so the LLM knows what it's looking at.
+func buildProjectContext(ctx context.Context, pool *pgxpool.Pool, projectID string) string {
+	var b strings.Builder
+
+	// Project name + description
+	var name, description string
+	err := pool.QueryRow(ctx,
+		"SELECT name, COALESCE(description, '') FROM projects WHERE id = $1", projectID,
+	).Scan(&name, &description)
+	if err != nil {
+		slog.Warn("buildProjectContext: could not load project", "error", err)
+		return ""
+	}
+
+	b.WriteString(fmt.Sprintf("## Project: %s\n", name))
+	if description != "" {
+		b.WriteString(fmt.Sprintf("Description: %s\n", description))
+	}
+
+	// Sources with their packages
+	type sourceInfo struct {
+		alias      string
+		sourceType string
+		packages   []string
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT ps.alias, ps.source_type, COALESCE(
+			(SELECT array_agg(p.name ORDER BY p.name)
+			 FROM packages p
+			 JOIN workspaces w ON p.workspace_id = w.id
+			 WHERE w.source_id = ps.id),
+			ARRAY[]::text[]
+		) as pkg_names
+		FROM project_sources ps
+		WHERE ps.project_id = $1
+		ORDER BY ps.alias`, projectID)
+	if err != nil {
+		slog.Warn("buildProjectContext: could not load sources", "error", err)
+		return b.String()
+	}
+	defer rows.Close()
+
+	var sources []sourceInfo
+	for rows.Next() {
+		var s sourceInfo
+		if err := rows.Scan(&s.alias, &s.sourceType, &s.packages); err != nil {
+			continue
+		}
+		sources = append(sources, s)
+	}
+
+	if len(sources) > 0 {
+		b.WriteString("\n### Sources\n")
+		for _, s := range sources {
+			pkgSummary := ""
+			if len(s.packages) > 0 {
+				if len(s.packages) <= 5 {
+					pkgSummary = fmt.Sprintf(" — %d package%s: %s",
+						len(s.packages), plural(len(s.packages)), strings.Join(s.packages, ", "))
+				} else {
+					pkgSummary = fmt.Sprintf(" — %d packages: %s, ...",
+						len(s.packages), strings.Join(s.packages[:5], ", "))
+				}
+			}
+			b.WriteString(fmt.Sprintf("- %s (%s)%s\n", s.alias, s.sourceType, pkgSummary))
+		}
+	}
+
+	// Node + edge counts
+	var nodeCount, edgeCount int
+	pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM nodes n
+		JOIN workspaces w ON n.workspace_id = w.id
+		WHERE w.project_id = $1`, projectID).Scan(&nodeCount)
+	pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM edges e
+		JOIN nodes n ON e.source_id = n.id
+		JOIN workspaces w ON n.workspace_id = w.id
+		WHERE w.project_id = $1`, projectID).Scan(&edgeCount)
+
+	if nodeCount > 0 {
+		b.WriteString(fmt.Sprintf("\n### Stats\n%d code symbols, %d relationships\n", nodeCount, edgeCount))
+	}
+
+	return b.String()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func extractSources(nodes []ContextNode) []Source {
