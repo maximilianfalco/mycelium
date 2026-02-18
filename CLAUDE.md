@@ -10,7 +10,8 @@ A local-only code intelligence tool. Parses local repos, builds a structural gra
 | Frontend | Next.js (App Router, TypeScript, shadcn/ui) |
 | Database | Postgres 16 + pgvector (Docker) |
 | CLI | Go (cobra) |
-| Embeddings/Chat | OpenAI API (future) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| Chat | OpenAI `gpt-4o` |
 
 ## Project Structure
 
@@ -32,13 +33,25 @@ mycelium/
 │   │       ├── helpers.go       # writeJSON, writeError
 │   │       ├── projects.go      # Project/source CRUD endpoints
 │   │       ├── scan.go          # POST /scan (real filesystem scan)
-│   │       ├── debug.go         # Mocked — 6 POST /debug/* endpoints (spore lab)
-│   │       ├── indexing.go      # Stubbed — POST /index, GET /index/status
-│   │       ├── search.go        # Stubbed — semantic + structural search
-│   │       └── chat.go          # Stubbed — chat endpoint
-│   ├── parsers/                 # (empty — Phase 1.2)
-│   ├── indexer/                 # (empty — Phase 1.2)
-│   └── engine/                  # (empty — Phase 1.2)
+│   │       ├── debug.go         # 8 POST /debug/* endpoints (spore lab) — all real
+│   │       ├── indexing.go      # POST /index, GET /index/status — real
+│   │       ├── search.go        # Semantic + structural search — real
+│   │       └── chat.go          # Streamed chat with context assembly — real
+│   ├── indexer/
+│   │   ├── pipeline.go          # 7-stage indexing pipeline orchestrator
+│   │   ├── change_detector.go   # Git diff / mtime change detection
+│   │   ├── crawler.go           # Directory crawling with gitignore support
+│   │   ├── import_resolver.go   # Import resolution against alias maps
+│   │   ├── graph_builder.go     # Node/edge upsert into Postgres
+│   │   ├── embedder.go          # OpenAI embedding with batching + retry
+│   │   ├── chunker.go           # Embedding input preparation + tokenization
+│   │   ├── parsers/             # Tree-sitter parsers (TS/JS, Go)
+│   │   └── detectors/           # Workspace detection (Node.js, Go)
+│   └── engine/
+│       ├── chat.go              # Streamed chat with OpenAI + context assembly
+│       ├── context_assembler.go # Scores and ranks nodes for LLM context
+│       ├── graph_query.go       # Structural queries (callers, deps, etc.)
+│       └── search.go            # Semantic search via pgvector
 ├── frontend/                    # Next.js app
 │   └── src/
 │       ├── app/
@@ -86,7 +99,7 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 |---|---|
 | Go API | 8080 |
 | Next.js frontend | 3773 |
-| Postgres | 5433 (not 5432 — pendaki-postgres uses that) |
+| Postgres | 5433 |
 | pgAdmin | 5050 |
 
 ## Database
@@ -98,15 +111,17 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 
 ## API Status
 
+All endpoints are fully implemented (no stubs or mocks remain).
+
 | Endpoint group | Status |
 |---|---|
 | Projects CRUD | Real (Postgres) |
 | Sources CRUD | Real (Postgres) |
 | POST /scan | Real (filesystem) |
-| Debug (spore lab) | Mocked (6 endpoints: crawl, parse, embed-text, compare, workspace, changes) |
-| Indexing | Stubbed |
-| Search | Stubbed |
-| Chat | Stubbed |
+| Debug (spore lab) | Real (8 endpoints: crawl, parse, resolve, read-file, embed-text, compare, workspace, changes) |
+| Indexing | Real (7-stage pipeline, background jobs, status polling) |
+| Search | Real (semantic via pgvector, structural via graph queries) |
+| Chat | Real (streamed via OpenAI, context assembly from graph + embeddings) |
 
 ## Git
 
@@ -135,23 +150,6 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 - Route handlers use closure pattern: `func handler(pool) http.HandlerFunc`
 - Frontend uses custom shadcn theme (zinc/monochrome, 0 border-radius, no shadows, JetBrains Mono)
 
-## Design Docs
-
-Full design documentation lives in Obsidian: `~/Documents/Obsidian/obsidian-vault/Mycelium/`
-
-Key files:
-- `Mycelium Design - Overview.md` — architecture, tech stack, glossary
-- `Implementation Steps.md` — ordered build steps (currently on Step 0 done, Step 1 in progress)
-- `Design/Data Model.md` — hierarchy, node/edge kinds, full DB schema
-- `Design/Phase Plan.md` — phases 1-4 with rationale
-- `Design/Project Structure & CLI.md` — file layout, CLI commands, config
-- `Design/Query Engine.md` — query types, context assembly
-- `Design/Indexing Pipeline.md` — 7-stage pipeline
-- `Design/Monorepo & Workspace Support.md` — detection logic, alias maps
-- `Design/Debug Mode - Spore Lab.md` — debug tab design, mock→real swap table
-
 ## Spore Lab (Debug Mode)
 
-The "spore lab" tab in the project detail view runs individual indexing pipeline stages on a test directory. All 6 debug endpoints (`/debug/*`) currently return mocked data matching the exact response shapes the real implementations will produce. When real implementations land (steps 2.1–2.8), each mock gets swapped individually — response shapes stay the same, only the data source changes. See `Design/Debug Mode - Spore Lab.md` for the mock→real swap table.
-
-Debug endpoints do NOT take `*pgxpool.Pool` — they're stateless mock handlers. When swapping to real implementations, the route functions will need the pool parameter added (same closure pattern as other routes).
+The "spore lab" tab in the project detail view runs individual indexing pipeline stages interactively. All 8 debug endpoints (`/debug/*`) are fully implemented — crawl, parse, resolve, read-file, embed-text, compare, workspace, and changes.
