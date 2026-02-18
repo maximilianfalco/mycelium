@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maximilianfalco/mycelium/internal/api/routes"
+	"github.com/maximilianfalco/mycelium/internal/config"
 )
 
 func init() {
@@ -79,7 +80,7 @@ func requestLogger(next http.Handler) http.Handler {
 	})
 }
 
-func NewServer(pool *pgxpool.Pool, port string) *http.Server {
+func NewServer(pool *pgxpool.Pool, cfg *config.Config, port string) *http.Server {
 	r := chi.NewRouter()
 
 	r.Use(requestLogger)
@@ -95,7 +96,7 @@ func NewServer(pool *pgxpool.Pool, port string) *http.Server {
 	r.Mount("/projects", routes.ProjectRoutes(pool))
 	r.Post("/scan", routes.ScanHandler())
 	r.Mount("/search", routes.SearchRoutes())
-	r.Mount("/debug", routes.DebugRoutes())
+	r.Mount("/debug", routes.DebugRoutes(cfg))
 
 	return &http.Server{
 		Addr:    ":" + port,
@@ -103,8 +104,8 @@ func NewServer(pool *pgxpool.Pool, port string) *http.Server {
 	}
 }
 
-func Run(pool *pgxpool.Pool, port string) error {
-	srv := NewServer(pool, port)
+func Run(pool *pgxpool.Pool, cfg *config.Config, port string) error {
+	srv := NewServer(pool, cfg, port)
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)

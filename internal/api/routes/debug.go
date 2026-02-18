@@ -3,28 +3,33 @@ package routes
 import (
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maximilianfalco/mycelium/internal/config"
 	"github.com/maximilianfalco/mycelium/internal/indexer"
 	"github.com/maximilianfalco/mycelium/internal/indexer/detectors"
 	"github.com/maximilianfalco/mycelium/internal/indexer/parsers"
+	"github.com/sashabaranov/go-openai"
 )
 
-func DebugRoutes() chi.Router {
+func DebugRoutes(cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
+
+	var oaiClient *openai.Client
+	if cfg.OpenAIAPIKey != "" {
+		oaiClient = openai.NewClient(cfg.OpenAIAPIKey)
+	}
 
 	r.Post("/crawl", debugCrawl())
 	r.Post("/parse", debugParse())
 	r.Post("/resolve", debugResolve())
 	r.Post("/read-file", debugReadFile())
-	r.Post("/embed-text", debugEmbedText())
-	r.Post("/compare", debugCompare())
+	r.Post("/embed-text", debugEmbedText(oaiClient))
+	r.Post("/compare", debugCompare(oaiClient))
 	r.Post("/workspace", debugWorkspace())
 	r.Post("/changes", debugChanges())
 
@@ -207,7 +212,7 @@ func debugReadFile() http.HandlerFunc {
 	}
 }
 
-func debugEmbedText() http.HandlerFunc {
+func debugEmbedText(client *openai.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Text string `json:"text"`
@@ -220,26 +225,46 @@ func debugEmbedText() http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-
-		dims := 1536
-		vector := make([]float64, dims)
-		for i := range vector {
-			vector[i] = math.Round((rand.Float64()*2-1)*10000) / 10000
+		if client == nil {
+			writeError(w, http.StatusServiceUnavailable, "OPENAI_API_KEY not configured")
+			return
 		}
 
-		tokenCount := len(strings.Fields(req.Text)) + len(req.Text)/4
+		tokenCount, err := indexer.CountTokens(req.Text)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("counting tokens: %v", err))
+			return
+		}
+
+		chunk, err := indexer.PrepareEmbeddingInput("", "", req.Text)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("preparing input: %v", err))
+			return
+		}
+
+		vector, err := indexer.EmbedText(r.Context(), client, chunk.Text)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("embedding: %v", err))
+			return
+		}
+
+		// Return first 8 dimensions for display (same shape as before)
+		preview := make([]float32, 8)
+		if len(vector) >= 8 {
+			copy(preview, vector[:8])
+		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"vector":     vector[:8],
-			"dimensions": dims,
+			"vector":     preview,
+			"dimensions": len(vector),
 			"tokenCount": tokenCount,
 			"model":      "text-embedding-3-small",
-			"truncated":  false,
+			"truncated":  chunk.Truncated,
 		})
 	}
 }
 
-func debugCompare() http.HandlerFunc {
+func debugCompare(client *openai.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Text1 string `json:"text1"`
@@ -253,34 +278,31 @@ func debugCompare() http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "text1 and text2 are required")
 			return
 		}
-
-		// Similarity based on shared words for mock realism
-		words1 := strings.Fields(strings.ToLower(req.Text1))
-		words2 := strings.Fields(strings.ToLower(req.Text2))
-		wordSet := make(map[string]bool)
-		for _, w := range words1 {
-			wordSet[w] = true
-		}
-		shared := 0
-		for _, w := range words2 {
-			if wordSet[w] {
-				shared++
-			}
-		}
-		total := len(words1) + len(words2)
-		similarity := 0.0
-		if total > 0 {
-			similarity = math.Round(float64(shared*2)/float64(total)*10000) / 10000
+		if client == nil {
+			writeError(w, http.StatusServiceUnavailable, "OPENAI_API_KEY not configured")
+			return
 		}
 
-		tokenCount1 := len(words1) + len(req.Text1)/4
-		tokenCount2 := len(words2) + len(req.Text2)/4
+		vectors, err := indexer.EmbedTexts(r.Context(), client, []string{req.Text1, req.Text2})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("embedding: %v", err))
+			return
+		}
+		if len(vectors) != 2 {
+			writeError(w, http.StatusInternalServerError, "expected 2 vectors from API")
+			return
+		}
+
+		similarity := indexer.CosineSimilarity(vectors[0], vectors[1])
+
+		tokenCount1, _ := indexer.CountTokens(req.Text1)
+		tokenCount2, _ := indexer.CountTokens(req.Text2)
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"similarity":  similarity,
 			"tokenCount1": tokenCount1,
 			"tokenCount2": tokenCount2,
-			"dimensions":  1536,
+			"dimensions":  len(vectors[0]),
 		})
 	}
 }
