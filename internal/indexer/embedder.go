@@ -74,8 +74,8 @@ func EmbedText(ctx context.Context, client *openai.Client, text string) ([]float
 }
 
 // EmbedBatched splits texts into batches of batchSize and embeds them all.
-// Logs progress per batch.
-func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, batchSize int) ([][]float32, error) {
+// If onProgress is non-nil, it's called after each batch with the percentage complete (0–100).
+func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, batchSize int, onProgress func(pct int)) ([][]float32, error) {
 	if batchSize <= 0 {
 		batchSize = 2048
 	}
@@ -99,6 +99,10 @@ func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, ba
 		}
 
 		copy(allVectors[i:end], vectors)
+
+		if onProgress != nil {
+			onProgress(batchNum * 100 / totalBatches)
+		}
 	}
 
 	return allVectors, nil

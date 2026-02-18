@@ -250,7 +250,7 @@ func indexSource(
 
 	// Stage 5: Body hash comparison + embedding
 	updateStatus("embedding", fmt.Sprintf("embedding nodes for %s", source.Alias))
-	embeddings, embeddedCount, err := embedChangedNodes(ctx, pool, oaiClient, cfg, projectID, source.ID, allNodes, wsInfo)
+	embeddings, embeddedCount, err := embedChangedNodes(ctx, pool, oaiClient, cfg, projectID, source.ID, allNodes, updateStatus)
 	if err != nil {
 		return nil, fmt.Errorf("embedding: %w", err)
 	}
@@ -385,7 +385,7 @@ func embedChangedNodes(
 	cfg *config.Config,
 	projectID, sourceID string,
 	allNodes []parsers.NodeInfo,
-	ws *detectors.WorkspaceInfo,
+	updateStatus func(stage, progress string),
 ) (map[string][]float32, int, error) {
 	embeddings := make(map[string][]float32)
 
@@ -441,7 +441,9 @@ func embedChangedNodes(
 	}
 
 	// Batch embed
-	vectors, err := EmbedBatched(ctx, oaiClient, texts, cfg.MaxEmbeddingBatch)
+	vectors, err := EmbedBatched(ctx, oaiClient, texts, cfg.MaxEmbeddingBatch, func(pct int) {
+		updateStatus("embedding", fmt.Sprintf("embedding %d nodes — %d%%", len(toEmbed), pct))
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("batch embedding: %w", err)
 	}
