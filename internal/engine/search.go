@@ -20,6 +20,7 @@ type SearchResult struct {
 	Similarity    float64 `json:"similarity"`
 	Signature     string  `json:"signature"`
 	SourceCode    string  `json:"sourceCode,omitempty"`
+	Docstring     string  `json:"docstring,omitempty"`
 }
 
 // SemanticSearch embeds the query text via OpenAI, then runs a pgvector cosine
@@ -54,7 +55,8 @@ func SemanticSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec 
 			n.kind,
 			1 - (n.embedding <=> $1) AS similarity,
 			COALESCE(n.signature, ''),
-			COALESCE(n.source_code, '')
+			COALESCE(n.source_code, ''),
+			COALESCE(n.docstring, '')
 		FROM nodes n
 		JOIN workspaces ws ON n.workspace_id = ws.id
 		WHERE ws.project_id = $2
@@ -93,7 +95,7 @@ func SemanticSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec 
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode); err != nil {
+		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode, &r.Docstring); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		results = append(results, r)

@@ -20,6 +20,7 @@ type ContextNode struct {
 	Kind          string   `json:"kind"`
 	Signature     string   `json:"signature"`
 	SourceCode    string   `json:"sourceCode,omitempty"`
+	Docstring     string   `json:"docstring,omitempty"`
 	Similarity    float64  `json:"similarity"`
 	Score         float64  `json:"score"`
 	CalledBy      []string `json:"calledBy,omitempty"`
@@ -93,6 +94,7 @@ type scoredNode struct {
 	kind          string
 	signature     string
 	sourceCode    string
+	docstring     string
 	similarity    float64
 	weight        float64
 }
@@ -116,6 +118,7 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 				kind:          sr.Kind,
 				signature:     sr.Signature,
 				sourceCode:    sr.SourceCode,
+				docstring:     sr.Docstring,
 				similarity:    sr.Similarity,
 				weight:        1.0,
 			}
@@ -196,6 +199,7 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 			FilePath:      rn.filePath,
 			Kind:          rn.kind,
 			Signature:     rn.signature,
+			Docstring:     rn.docstring,
 			Similarity:    rn.similarity,
 			Score:         rn.score,
 			FullSource:    fullSource,
@@ -270,6 +274,7 @@ func addOrUpdate(seen map[string]*scoredNode, n NodeResult, similarity, weight f
 			kind:          n.Kind,
 			signature:     n.Signature,
 			sourceCode:    n.SourceCode,
+			docstring:     n.Docstring,
 			similarity:    similarity,
 			weight:        weight,
 		}
@@ -297,6 +302,10 @@ func formatNode(n ContextNode) string {
 
 	b.WriteString(fmt.Sprintf("### %s — %s (similarity: %.2f)\n", n.FilePath, n.QualifiedName, n.Similarity))
 	b.WriteString(fmt.Sprintf("Signature: %s\n", n.Signature))
+
+	if n.Docstring != "" {
+		b.WriteString(fmt.Sprintf("Docstring: %s\n", n.Docstring))
+	}
 
 	if len(n.CalledBy) > 0 {
 		b.WriteString(fmt.Sprintf("Called by: %s\n", strings.Join(n.CalledBy, ", ")))

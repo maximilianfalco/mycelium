@@ -17,6 +17,7 @@ type NodeResult struct {
 	Kind          string `json:"kind"`
 	Signature     string `json:"signature"`
 	SourceCode    string `json:"sourceCode,omitempty"`
+	Docstring     string `json:"docstring,omitempty"`
 	Depth         int    `json:"depth,omitempty"`
 }
 
@@ -36,7 +37,8 @@ type EdgeResult struct {
 func FindNodeByQualifiedName(ctx context.Context, pool *pgxpool.Pool, projectID, qualifiedName string) (*NodeResult, error) {
 	sql := `
 		SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
-		       COALESCE(n.signature, ''), COALESCE(n.source_code, '')
+		       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+		       COALESCE(n.docstring, '')
 		FROM nodes n
 		JOIN workspaces ws ON n.workspace_id = ws.id
 		WHERE ws.project_id = $1 AND n.qualified_name = $2
@@ -44,7 +46,7 @@ func FindNodeByQualifiedName(ctx context.Context, pool *pgxpool.Pool, projectID,
 
 	var r NodeResult
 	err := pool.QueryRow(ctx, sql, projectID, qualifiedName).Scan(
-		&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode,
+		&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode, &r.Docstring,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -79,7 +81,8 @@ func getRelated(ctx context.Context, pool *pgxpool.Pool, nodeID, edgeKind, direc
 		// Find nodes that have an edge pointing TO nodeID
 		sql = `
 			SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
-			       COALESCE(n.signature, ''), COALESCE(n.source_code, '')
+			       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+			       COALESCE(n.docstring, '')
 			FROM nodes n
 			JOIN edges e ON e.source_id = n.id
 			WHERE e.target_id = $1 AND e.kind = $2
@@ -89,7 +92,8 @@ func getRelated(ctx context.Context, pool *pgxpool.Pool, nodeID, edgeKind, direc
 		// Find nodes that nodeID has an edge pointing TO
 		sql = `
 			SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
-			       COALESCE(n.signature, ''), COALESCE(n.source_code, '')
+			       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+			       COALESCE(n.docstring, '')
 			FROM nodes n
 			JOIN edges e ON e.target_id = n.id
 			WHERE e.source_id = $1 AND e.kind = $2
@@ -138,10 +142,11 @@ func getTransitive(ctx context.Context, pool *pgxpool.Pool, nodeID, direction st
 			)
 			SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
 			       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+			       COALESCE(n.docstring, ''),
 			       MIN(t.depth) AS min_depth
 			FROM nodes n
 			JOIN traversal t ON n.id = t.node_id
-			GROUP BY n.id, n.qualified_name, n.name, n.file_path, n.kind, n.signature, n.source_code
+			GROUP BY n.id, n.qualified_name, n.name, n.file_path, n.kind, n.signature, n.source_code, n.docstring
 			ORDER BY min_depth, n.qualified_name
 			LIMIT $4`
 	} else {
@@ -158,10 +163,11 @@ func getTransitive(ctx context.Context, pool *pgxpool.Pool, nodeID, direction st
 			)
 			SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
 			       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+			       COALESCE(n.docstring, ''),
 			       MIN(t.depth) AS min_depth
 			FROM nodes n
 			JOIN traversal t ON n.id = t.node_id
-			GROUP BY n.id, n.qualified_name, n.name, n.file_path, n.kind, n.signature, n.source_code
+			GROUP BY n.id, n.qualified_name, n.name, n.file_path, n.kind, n.signature, n.source_code, n.docstring
 			ORDER BY min_depth, n.qualified_name
 			LIMIT $4`
 	}
@@ -175,7 +181,7 @@ func getTransitive(ctx context.Context, pool *pgxpool.Pool, nodeID, direction st
 	var results []NodeResult
 	for rows.Next() {
 		var r NodeResult
-		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode, &r.Depth); err != nil {
+		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode, &r.Docstring, &r.Depth); err != nil {
 			return nil, fmt.Errorf("scanning transitive row: %w", err)
 		}
 		results = append(results, r)
@@ -232,7 +238,8 @@ func GetCrossPackageDeps(ctx context.Context, pool *pgxpool.Pool, packageA, pack
 func GetFileContext(ctx context.Context, pool *pgxpool.Pool, filePath, projectID string) ([]NodeResult, error) {
 	sql := `
 		SELECT n.id, COALESCE(n.qualified_name, n.name), n.file_path, n.kind,
-		       COALESCE(n.signature, ''), COALESCE(n.source_code, '')
+		       COALESCE(n.signature, ''), COALESCE(n.source_code, ''),
+		       COALESCE(n.docstring, '')
 		FROM nodes n
 		JOIN workspaces ws ON n.workspace_id = ws.id
 		WHERE ws.project_id = $1 AND n.file_path = $2
@@ -252,7 +259,7 @@ func queryNodes(ctx context.Context, pool *pgxpool.Pool, sql string, args ...any
 	var results []NodeResult
 	for rows.Next() {
 		var r NodeResult
-		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode); err != nil {
+		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Signature, &r.SourceCode, &r.Docstring); err != nil {
 			return nil, fmt.Errorf("scanning node row: %w", err)
 		}
 		results = append(results, r)
