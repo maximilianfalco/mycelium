@@ -7,10 +7,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/maximilianfalco/mycelium/internal/config"
 	"github.com/maximilianfalco/mycelium/internal/projects"
 )
 
-func ProjectRoutes(pool *pgxpool.Pool) chi.Router {
+func ProjectRoutes(pool *pgxpool.Pool, cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
 
 	r.Post("/", createProject(pool))
@@ -26,7 +27,7 @@ func ProjectRoutes(pool *pgxpool.Pool) chi.Router {
 		r.Get("/sources", listSources(pool))
 		r.Delete("/sources/{sourceID}", removeSource(pool))
 
-		r.Mount("/index", IndexingRoutes(pool))
+		r.Mount("/index", IndexingRoutes(pool, cfg))
 		r.Mount("/chat", ChatRoutes())
 	})
 

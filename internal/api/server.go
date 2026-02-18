@@ -93,7 +93,7 @@ func NewServer(pool *pgxpool.Pool, cfg *config.Config, port string) *http.Server
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	r.Mount("/projects", routes.ProjectRoutes(pool))
+	r.Mount("/projects", routes.ProjectRoutes(pool, cfg))
 	r.Post("/scan", routes.ScanHandler())
 	r.Mount("/search", routes.SearchRoutes())
 	r.Mount("/debug", routes.DebugRoutes(cfg))
