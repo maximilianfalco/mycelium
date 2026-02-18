@@ -229,6 +229,10 @@ func (p *TypeScriptParser) extractLexicalDecl(source []byte, node *sitter.Node, 
 }
 
 func (p *TypeScriptParser) extractExport(source []byte, node *sitter.Node, parentName string, result *ParseResult) {
+	// JSDoc comments are siblings of the export_statement, not the inner declaration.
+	// Capture the docstring from the export node so we can attach it to the inner declaration.
+	exportDocstring := extractDocstring(source, node)
+
 	// export default function() → unwrap the declaration
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		child := node.NamedChild(i)
@@ -249,28 +253,94 @@ func (p *TypeScriptParser) extractExport(source []byte, node *sitter.Node, paren
 					StartLine:     int(node.StartPoint().Row) + 1,
 					EndLine:       int(node.EndPoint().Row) + 1,
 					SourceCode:    nodeContent(source, node),
-					Docstring:     extractDocstring(source, node),
+					Docstring:     exportDocstring,
 					BodyHash:      computeBodyHash(source, node),
 				}
 				result.Nodes = append(result.Nodes, info)
 			} else {
 				p.extractFunction(source, child, parentName, result)
+				// Backfill export docstring if the inner node had none
+				if exportDocstring != "" {
+					for j := range result.Nodes {
+						n := &result.Nodes[j]
+						if n.Name == nodeContent(source, nameNode) && n.Docstring == "" {
+							n.Docstring = exportDocstring
+						}
+					}
+				}
 			}
 
 		case "class_declaration", "abstract_class_declaration":
 			p.extractClass(source, child, result)
+			if exportDocstring != "" {
+				nameNode := child.ChildByFieldName("name")
+				if nameNode != nil {
+					name := nodeContent(source, nameNode)
+					for j := range result.Nodes {
+						if result.Nodes[j].QualifiedName == name && result.Nodes[j].Docstring == "" {
+							result.Nodes[j].Docstring = exportDocstring
+						}
+					}
+				}
+			}
 
 		case "interface_declaration":
 			p.extractSimpleDecl(source, child, "interface", parentName, result)
+			if exportDocstring != "" {
+				p.backfillDocstring(source, child, result, exportDocstring)
+			}
 
 		case "type_alias_declaration":
 			p.extractSimpleDecl(source, child, "type_alias", parentName, result)
+			if exportDocstring != "" {
+				p.backfillDocstring(source, child, result, exportDocstring)
+			}
 
 		case "enum_declaration":
 			p.extractSimpleDecl(source, child, "enum", parentName, result)
+			if exportDocstring != "" {
+				p.backfillDocstring(source, child, result, exportDocstring)
+			}
 
 		case "lexical_declaration":
 			p.extractLexicalDecl(source, child, parentName, result)
+			if exportDocstring != "" {
+				p.backfillExportLexicalDocstring(source, child, result, exportDocstring)
+			}
+		}
+	}
+}
+
+// backfillDocstring sets the export-level docstring on the last-added node if it has none.
+func (p *TypeScriptParser) backfillDocstring(source []byte, child *sitter.Node, result *ParseResult, docstring string) {
+	nameNode := child.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	name := nodeContent(source, nameNode)
+	for j := range result.Nodes {
+		if result.Nodes[j].Name == name && result.Nodes[j].Docstring == "" {
+			result.Nodes[j].Docstring = docstring
+		}
+	}
+}
+
+// backfillExportLexicalDocstring handles lexical declarations (const x = () => {}) inside exports.
+func (p *TypeScriptParser) backfillExportLexicalDocstring(source []byte, lexNode *sitter.Node, result *ParseResult, docstring string) {
+	for i := 0; i < int(lexNode.NamedChildCount()); i++ {
+		decl := lexNode.NamedChild(i)
+		if decl.Type() != "variable_declarator" {
+			continue
+		}
+		nameNode := decl.ChildByFieldName("name")
+		if nameNode == nil {
+			continue
+		}
+		name := nodeContent(source, nameNode)
+		for j := range result.Nodes {
+			if result.Nodes[j].Name == name && result.Nodes[j].Docstring == "" {
+				result.Nodes[j].Docstring = docstring
+			}
 		}
 	}
 }
