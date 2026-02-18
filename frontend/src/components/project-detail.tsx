@@ -29,12 +29,8 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
 
 function IndexedAt({ date }: { date: string }) {
-  const [formatted, setFormatted] = useState<string | null>(null);
-  useEffect(() => {
-    setFormatted(new Date(date).toLocaleString());
-  }, [date]);
-  if (!formatted) return null;
-  return <span>indexed {formatted}</span>;
+  const formatted = new Date(date).toLocaleString();
+  return <span suppressHydrationWarning>indexed {formatted}</span>;
 }
 
 export function ProjectDetail({
@@ -156,6 +152,8 @@ export function ProjectDetail({
     initialIndexStatus?.status === "running",
   );
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -173,7 +171,7 @@ export function ProjectDetail({
         if (idx.status !== "running") {
           stopPolling();
           setIndexing(false);
-          load();
+          loadRef.current();
         }
       } catch {
         // keep polling on transient errors
