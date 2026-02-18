@@ -261,17 +261,33 @@ func upsertEdges(ctx context.Context, tx pgx.Tx, workspaceID string, packageIDs 
 
 	// Build a node lookup: qualifiedName -> nodeID
 	nodeIDLookup := make(map[string]string)
+	// Also build filePath -> first nodeID for edges that use file paths as sources
+	fileNodeLookup := make(map[string]string)
 	for _, node := range input.Nodes {
 		filePath := nodeFilePath(node, input.Edges)
 		pkgID := findPackageID(filePath, input.Workspace, packageIDs)
 		nodeID := makeNodeID(workspaceID, pkgID, filePath, node.QualifiedName)
 		nodeIDLookup[node.QualifiedName] = nodeID
+		if _, exists := fileNodeLookup[filePath]; !exists {
+			fileNodeLookup[filePath] = nodeID
+		}
+	}
+
+	// lookupID resolves both qualified names and file paths to node IDs
+	lookupID := func(key string) (string, bool) {
+		if id, ok := nodeIDLookup[key]; ok {
+			return id, true
+		}
+		if id, ok := fileNodeLookup[key]; ok {
+			return id, true
+		}
+		return "", false
 	}
 
 	// Resolved edges (imports, calls, extends, implements, uses_type, embeds)
 	for _, e := range input.Resolved {
-		srcID, srcOK := nodeIDLookup[e.Source]
-		tgtID, tgtOK := nodeIDLookup[e.Target]
+		srcID, srcOK := lookupID(e.Source)
+		tgtID, tgtOK := lookupID(e.Target)
 		if !srcOK || !tgtOK {
 			continue
 		}
@@ -289,8 +305,8 @@ func upsertEdges(ctx context.Context, tx pgx.Tx, workspaceID string, packageIDs 
 		if e.Kind != "contains" {
 			continue
 		}
-		srcID, srcOK := nodeIDLookup[e.Source]
-		tgtID, tgtOK := nodeIDLookup[e.Target]
+		srcID, srcOK := lookupID(e.Source)
+		tgtID, tgtOK := lookupID(e.Target)
 		if !srcOK || !tgtOK {
 			continue
 		}
@@ -305,8 +321,8 @@ func upsertEdges(ctx context.Context, tx pgx.Tx, workspaceID string, packageIDs 
 
 	// depends_on edges (package level — map to workspace-level nodes or skip if no match)
 	for _, e := range input.DependsOn {
-		srcID, srcOK := nodeIDLookup[e.Source]
-		tgtID, tgtOK := nodeIDLookup[e.Target]
+		srcID, srcOK := lookupID(e.Source)
+		tgtID, tgtOK := lookupID(e.Target)
 		if !srcOK || !tgtOK {
 			continue
 		}
@@ -376,13 +392,17 @@ func insertUnresolvedRefs(ctx context.Context, tx pgx.Tx, workspaceID string, pa
 		return 0, nil
 	}
 
-	// Build node ID lookup
+	// Build node ID lookup (qualifiedName -> nodeID) and file path lookup (filePath -> first nodeID)
 	nodeIDLookup := make(map[string]string)
+	fileNodeLookup := make(map[string]string)
 	for _, node := range input.Nodes {
 		filePath := nodeFilePath(node, input.Edges)
 		pkgID := findPackageID(filePath, input.Workspace, packageIDs)
 		nodeID := makeNodeID(workspaceID, pkgID, filePath, node.QualifiedName)
 		nodeIDLookup[node.QualifiedName] = nodeID
+		if _, exists := fileNodeLookup[filePath]; !exists {
+			fileNodeLookup[filePath] = nodeID
+		}
 	}
 
 	// Clear old unresolved refs for this workspace before inserting new ones
@@ -409,6 +429,10 @@ func insertUnresolvedRefs(ctx context.Context, tx pgx.Tx, workspaceID string, pa
 		batchCount := 0
 		for _, ref := range chunk {
 			srcID, ok := nodeIDLookup[ref.Source]
+			if !ok {
+				// ref.Source is often a file path for import edges
+				srcID, ok = fileNodeLookup[ref.Source]
+			}
 			if !ok {
 				continue
 			}
