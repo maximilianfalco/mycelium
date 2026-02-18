@@ -17,6 +17,7 @@ export function ConfirmationDialog({
   body,
   cancel = "cancel",
   yes = "confirm",
+  loading = false,
   onCancel,
   onAccept,
 }: {
@@ -26,6 +27,7 @@ export function ConfirmationDialog({
   body: string;
   cancel?: string;
   yes?: string;
+  loading?: boolean;
   onCancel: () => void;
   onAccept: () => void;
 }) {
@@ -37,11 +39,11 @@ export function ConfirmationDialog({
           <DialogDescription>{body}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="secondary" onClick={onCancel}>
+          <Button variant="secondary" onClick={onCancel} disabled={loading}>
             {cancel}
           </Button>
-          <Button variant="destructive" onClick={onAccept}>
-            {yes}
+          <Button variant="destructive" onClick={onAccept} disabled={loading}>
+            {loading ? "deleting..." : yes}
           </Button>
         </DialogFooter>
       </DialogContent>

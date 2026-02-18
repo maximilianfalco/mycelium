@@ -73,35 +73,64 @@ func EmbedText(ctx context.Context, client *openai.Client, text string) ([]float
 	return vectors[0], nil
 }
 
-// EmbedBatched splits texts into batches of batchSize and embeds them all.
+const maxTokensPerBatch = 250_000
+
+// EmbedBatched splits texts into token-aware batches and embeds them all.
+// Each batch stays under 250K tokens (OpenAI limit is 300K, this leaves headroom).
+// batchSize caps the max number of items per batch as a secondary limit.
 // If onProgress is non-nil, it's called after each batch with the percentage complete (0–100).
 func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, batchSize int, onProgress func(pct int)) ([][]float32, error) {
 	if batchSize <= 0 {
 		batchSize = 2048
 	}
 
-	totalBatches := (len(texts) + batchSize - 1) / batchSize
-	allVectors := make([][]float32, len(texts))
-
-	for i := 0; i < len(texts); i += batchSize {
-		end := i + batchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
-		batch := texts[i:end]
-		batchNum := i/batchSize + 1
-
-		slog.Info("embedding batch", "batch", batchNum, "total", totalBatches, "nodes", len(batch))
-
-		vectors, err := EmbedTexts(ctx, client, batch)
+	// Pre-count tokens for each text to build token-aware batches
+	tokenCounts := make([]int, len(texts))
+	for i, t := range texts {
+		tc, err := CountTokens(t)
 		if err != nil {
-			return nil, fmt.Errorf("batch %d/%d: %w", batchNum, totalBatches, err)
+			tc = len(t) / 3 // rough fallback: ~3 chars per token
+		}
+		tokenCounts[i] = tc
+	}
+
+	// Build batches respecting both token and item limits
+	type batch struct {
+		start, end int
+	}
+	var batches []batch
+	i := 0
+	for i < len(texts) {
+		batchTokens := 0
+		j := i
+		for j < len(texts) && j-i < batchSize {
+			if batchTokens+tokenCounts[j] > maxTokensPerBatch && j > i {
+				break
+			}
+			batchTokens += tokenCounts[j]
+			j++
+		}
+		batches = append(batches, batch{i, j})
+		i = j
+	}
+
+	allVectors := make([][]float32, len(texts))
+	totalBatches := len(batches)
+
+	for batchNum, b := range batches {
+		chunk := texts[b.start:b.end]
+
+		slog.Info("embedding batch", "batch", batchNum+1, "total", totalBatches, "nodes", len(chunk))
+
+		vectors, err := EmbedTexts(ctx, client, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("batch %d/%d: %w", batchNum+1, totalBatches, err)
 		}
 
-		copy(allVectors[i:end], vectors)
+		copy(allVectors[b.start:b.end], vectors)
 
 		if onProgress != nil {
-			onProgress(batchNum * 100 / totalBatches)
+			onProgress((batchNum + 1) * 100 / totalBatches)
 		}
 	}
 

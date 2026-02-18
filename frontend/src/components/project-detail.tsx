@@ -28,6 +28,15 @@ import {
 import { SettingsPanel } from "@/components/settings-panel";
 import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
 
+function IndexedAt({ date }: { date: string }) {
+  const [formatted, setFormatted] = useState<string | null>(null);
+  useEffect(() => {
+    setFormatted(new Date(date).toLocaleString());
+  }, [date]);
+  if (!formatted) return null;
+  return <span>indexed {formatted}</span>;
+}
+
 export function ProjectDetail({
   id,
   initialProject,
@@ -63,7 +72,10 @@ export function ProjectDetail({
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [removingSource, setRemovingSource] = useState<string | null>(null);
   const [viewerFile, setViewerFile] = useState<CodeViewerFile | null>(null);
 
   const load = async () => {
@@ -110,24 +122,34 @@ export function ProjectDetail({
   };
 
   const handleLink = async () => {
-    await Promise.all(
-      scanResults
-        .filter((r) => selected.has(r.path))
-        .map((r) =>
-          api.sources
-            .add(id, r.path, r.sourceType, true, r.name)
-            .catch(() => {}),
-        ),
-    );
-    setScanOpen(false);
-    setScanResults([]);
-    setSelected(new Set());
-    load();
+    setLinking(true);
+    try {
+      await Promise.all(
+        scanResults
+          .filter((r) => selected.has(r.path))
+          .map((r) =>
+            api.sources
+              .add(id, r.path, r.sourceType, true, r.name)
+              .catch(() => {}),
+          ),
+      );
+      setScanOpen(false);
+      setScanResults([]);
+      setSelected(new Set());
+      load();
+    } finally {
+      setLinking(false);
+    }
   };
 
   const handleRemoveSource = async (sourceId: string) => {
-    await api.sources.remove(id, sourceId);
-    load();
+    setRemovingSource(sourceId);
+    try {
+      await api.sources.remove(id, sourceId);
+      load();
+    } finally {
+      setRemovingSource(null);
+    }
   };
 
   const [indexing, setIndexing] = useState(
@@ -204,8 +226,13 @@ export function ProjectDetail({
   };
 
   const handleDelete = async () => {
-    await api.projects.delete(id);
-    router.push("/");
+    setDeleting(true);
+    try {
+      await api.projects.delete(id);
+      router.push("/");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -263,6 +290,7 @@ export function ProjectDetail({
           body="this will permanently delete this colony and all its linked substrates. this cannot be undone."
           cancel="cancel"
           yes="delete"
+          loading={deleting}
           onCancel={() => setDeleteOpen(false)}
           onAccept={handleDelete}
         />
@@ -273,17 +301,20 @@ export function ProjectDetail({
               <span>{indexStatus.nodeCount} nodes</span>
               <span>{indexStatus.edgeCount} edges</span>
               {indexStatus.lastIndexedAt && (
-                <span>
-                  indexed{" "}
-                  {new Date(indexStatus.lastIndexedAt).toLocaleString()}
-                </span>
+                <IndexedAt date={indexStatus.lastIndexedAt} />
               )}
             </div>
-            {indexStatus.status === "running" && indexStatus.progress && (
+            {indexStatus.status === "running" && (
               <div className="text-xs text-muted-foreground">
-                <span className="text-foreground">{indexStatus.stage}</span>
-                {" \u2014 "}
-                {indexStatus.progress}
+                <span className="text-foreground">
+                  {indexStatus.stage || "starting"}
+                </span>
+                {indexStatus.progress && (
+                  <>
+                    {" \u2014 "}
+                    {indexStatus.progress}
+                  </>
+                )}
               </div>
             )}
             {indexStatus.status === "failed" && indexStatus.error && (
@@ -405,11 +436,13 @@ export function ProjectDetail({
                       {selected.size > 0 && (
                         <Button
                           onClick={handleLink}
+                          disabled={linking}
                           className="w-full"
                           title="Link substrates"
                         >
-                          link {selected.size} substrate
-                          {selected.size !== 1 ? "s" : ""}
+                          {linking
+                            ? "linking..."
+                            : `link ${selected.size} substrate${selected.size !== 1 ? "s" : ""}`}
                         </Button>
                       )}
                       <button
@@ -460,10 +493,11 @@ export function ProjectDetail({
                     </div>
                     <button
                       onClick={() => handleRemoveSource(s.id)}
-                      className="text-xs text-muted-foreground hover:text-destructive ml-2"
+                      disabled={removingSource === s.id}
+                      className="text-xs text-muted-foreground hover:text-destructive ml-2 disabled:opacity-50"
                       title="Remove substrate"
                     >
-                      remove
+                      {removingSource === s.id ? "removing..." : "remove"}
                     </button>
                   </div>
                 ))}

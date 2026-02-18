@@ -28,7 +28,7 @@ func Load() (*Config, error) {
 		DatabaseURL:         getEnvDefault("DATABASE_URL", "postgresql://mycelium:mycelium@localhost:5433/mycelium"),
 		EmbeddingModel:      getEnvDefault("EMBEDDING_MODEL", "text-embedding-3-small"),
 		ChatModel:           getEnvDefault("CHAT_MODEL", "gpt-4o"),
-		MaxEmbeddingBatch:   getEnvInt("MAX_EMBEDDING_BATCH", 2048),
+		MaxEmbeddingBatch:   getEnvInt("MAX_EMBEDDING_BATCH", 1000),
 		MaxContextTokens:    getEnvInt("MAX_CONTEXT_TOKENS", 8000),
 		MaxAutoReindexFiles: getEnvInt("MAX_AUTO_REINDEX_FILES", 100),
 		ServerPort:          getEnvDefault("SERVER_PORT", "8080"),

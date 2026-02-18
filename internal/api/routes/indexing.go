@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -50,9 +51,10 @@ func triggerIndex(pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Clie
 		}
 		statusStore.Set(jobID, status)
 
-		// Run indexing in background
+		// Run indexing in background — use a detached context so the job
+		// isn't cancelled when the HTTP response is sent.
 		go func() {
-			result := indexer.IndexProject(r.Context(), pool, cfg, oaiClient, projectID, status)
+			result := indexer.IndexProject(context.Background(), pool, cfg, oaiClient, projectID, status)
 			now := time.Now()
 			status.DoneAt = &now
 			status.Result = result

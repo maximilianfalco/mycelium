@@ -84,7 +84,7 @@ func detectGitChanges(ctx context.Context, sourcePath string, lastIndexedCommit 
 	if lastIndexedCommit == nil || *lastIndexedCommit == "" {
 		cs.IsFullIndex = true
 		cs.LastIndexedCommit = ""
-		return populateFullIndex(ctx, cs, sourcePath, maxAutoReindexFiles)
+		return populateFullIndex(cs, sourcePath)
 	}
 
 	cs.LastIndexedCommit = *lastIndexedCommit
@@ -105,7 +105,7 @@ func detectGitChanges(ctx context.Context, sourcePath string, lastIndexedCommit 
 			"error", err,
 		)
 		cs.IsFullIndex = true
-		return populateFullIndex(ctx, cs, sourcePath, maxAutoReindexFiles)
+		return populateFullIndex(cs, sourcePath)
 	}
 
 	cs.AddedFiles = filterCodeFiles(added)
@@ -169,7 +169,7 @@ func gitDiff(ctx context.Context, dir, fromCommit, toCommit string) (added, modi
 }
 
 // populateFullIndex crawls the source path and marks all files as added.
-func populateFullIndex(ctx context.Context, cs *ChangeSet, sourcePath string, maxAutoReindexFiles int) (*ChangeSet, error) {
+func populateFullIndex(cs *ChangeSet, sourcePath string) (*ChangeSet, error) {
 	result, err := CrawlDirectory(sourcePath, true)
 	if err != nil {
 		return nil, fmt.Errorf("crawling for full index: %w", err)
@@ -179,10 +179,7 @@ func populateFullIndex(ctx context.Context, cs *ChangeSet, sourcePath string, ma
 		cs.AddedFiles = append(cs.AddedFiles, f.RelPath)
 	}
 
-	if maxAutoReindexFiles > 0 && len(cs.AddedFiles) > maxAutoReindexFiles {
-		cs.ThresholdExceeded = true
-	}
-
+	// Don't apply threshold on first index — it's always intentional
 	return cs, nil
 }
 
@@ -224,7 +221,7 @@ func detectMtimeChanges(sourcePath string, lastIndexedAt *time.Time, maxAutoRein
 		IsGitRepo: false,
 	}
 
-	// First index
+	// First index — no threshold, always allowed
 	if lastIndexedAt == nil {
 		cs.IsFullIndex = true
 		result, err := CrawlDirectory(sourcePath, true)
@@ -233,9 +230,6 @@ func detectMtimeChanges(sourcePath string, lastIndexedAt *time.Time, maxAutoRein
 		}
 		for _, f := range result.Files {
 			cs.AddedFiles = append(cs.AddedFiles, f.RelPath)
-		}
-		if maxAutoReindexFiles > 0 && len(cs.AddedFiles) > maxAutoReindexFiles {
-			cs.ThresholdExceeded = true
 		}
 		return cs, nil
 	}
