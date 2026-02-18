@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	maxRetries     = 5
-	baseBackoff    = 500 * time.Millisecond
-	maxBackoff     = 30 * time.Second
+	maxRetries     = 10
+	baseBackoff    = 1 * time.Second
+	maxBackoff     = 60 * time.Second
 	embeddingModel = openai.SmallEmbedding3
 )
 
@@ -131,6 +131,15 @@ func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, ba
 
 		if onProgress != nil {
 			onProgress((batchNum + 1) * 100 / totalBatches)
+		}
+
+		// Pace batches to avoid exceeding TPM rate limits
+		if batchNum < totalBatches-1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
 		}
 	}
 
