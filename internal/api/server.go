@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maximilianfalco/mycelium/internal/api/routes"
 	"github.com/maximilianfalco/mycelium/internal/config"
+	"github.com/sashabaranov/go-openai"
 )
 
 func init() {
@@ -93,9 +94,14 @@ func NewServer(pool *pgxpool.Pool, cfg *config.Config, port string) *http.Server
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	var oaiClient *openai.Client
+	if cfg.OpenAIAPIKey != "" {
+		oaiClient = openai.NewClient(cfg.OpenAIAPIKey)
+	}
+
 	r.Mount("/projects", routes.ProjectRoutes(pool, cfg))
 	r.Post("/scan", routes.ScanHandler())
-	r.Mount("/search", routes.SearchRoutes())
+	r.Mount("/search", routes.SearchRoutes(pool, oaiClient))
 	r.Mount("/debug", routes.DebugRoutes(cfg))
 
 	return &http.Server{

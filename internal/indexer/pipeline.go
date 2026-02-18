@@ -151,6 +151,17 @@ func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, o
 		result.TotalDeleted += sourceResult.NodesDeleted
 	}
 
+	// TODO(critical): Stage 4b — cross-source import resolution.
+	// Currently each source resolves imports only against its own workspace alias map.
+	// If a colony has multiple repos (e.g., readme + gitto) and one imports from the
+	// other, those imports land in unresolved_refs. After all sources finish indexing,
+	// we need a pass that:
+	//   1. Collects all unresolved_refs across all workspaces in this project
+	//   2. Checks each specifier against package names from sibling workspaces
+	//   3. Creates resolved cross-workspace edges (imports, depends_on)
+	// The data model supports this already — node IDs are globally unique. Without this,
+	// multi-repo colonies lose structural coupling visibility (semantic search still works).
+
 	result.Duration = time.Since(start)
 	slog.Info("pipeline complete",
 		"project", projectID,

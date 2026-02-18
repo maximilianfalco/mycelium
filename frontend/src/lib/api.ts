@@ -76,6 +76,16 @@ export interface IndexStatus {
   error?: string;
 }
 
+export interface SemanticSearchResult {
+  nodeId: string;
+  qualifiedName: string;
+  filePath: string;
+  kind: string;
+  similarity: number;
+  signature: string;
+  sourceCode?: string;
+}
+
 export interface ChatResponse {
   message: string;
   sources: Array<{ nodeId: string; filePath: string; qualifiedName: string }>;
@@ -228,6 +238,19 @@ export const api = {
       ),
     status: (projectId: string) =>
       request<IndexStatus>(`/projects/${projectId}/index/status`),
+  },
+
+  search: {
+    semantic: (
+      query: string,
+      projectId: string,
+      limit?: number,
+      kinds?: string[],
+    ) =>
+      request<SemanticSearchResult[]>("/search/semantic", {
+        method: "POST",
+        body: JSON.stringify({ query, projectId, limit, kinds }),
+      }),
   },
 
   chat: {
