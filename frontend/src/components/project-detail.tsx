@@ -475,7 +475,7 @@ export function ProjectDetail({
                       </div>
                       {scanResults.length > 0 && (
                         <div className="border border-border max-h-64 overflow-y-auto">
-                          {scanResults.map((r) => (
+                          {scanResults.filter((r) => !sources.some((s) => s.path === r.path)).map((r) => (
                             <label
                               key={r.path}
                               className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 cursor-pointer text-sm"
@@ -539,6 +539,11 @@ export function ProjectDetail({
                     className="flex items-center justify-between px-3 py-2 border border-border"
                   >
                     <div className="flex items-center gap-3 min-w-0">
+                      {s.lastIndexedAt ? (
+                        <span className="text-green-500 text-sm shrink-0" title={`indexed ${new Date(s.lastIndexedAt).toLocaleString()}`}>&#10003;</span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm shrink-0" title="not indexed">&#x2013;</span>
+                      )}
                       <span className="text-sm truncate">
                         {s.alias || s.path}
                       </span>
