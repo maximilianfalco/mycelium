@@ -2,34 +2,85 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	openai "github.com/sashabaranov/go-openai"
+
+	"github.com/maximilianfalco/mycelium/internal/config"
+	"github.com/maximilianfalco/mycelium/internal/engine"
 )
 
-func ChatRoutes() chi.Router {
+func ChatRoutes(pool *pgxpool.Pool, oaiClient *openai.Client, cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
 
-	r.Post("/", sendChat())
+	r.Post("/", streamChat(pool, oaiClient, cfg))
 	r.Get("/history", getChatHistory())
 
 	return r
 }
 
-func sendChat() http.HandlerFunc {
+func streamChat(pool *pgxpool.Pool, oaiClient *openai.Client, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := chi.URLParam(r, "id")
+
 		var req struct {
-			Message string `json:"message"`
+			Message string               `json:"message"`
+			History []engine.ChatMessage `json:"history"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		if req.Message == "" {
+			writeError(w, http.StatusBadRequest, "message is required")
+			return
+		}
+		if oaiClient == nil {
+			writeError(w, http.StatusServiceUnavailable, "OpenAI API key not configured")
+			return
+		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"message": "Placeholder response. Indexing engine not yet implemented. Your question was: " + req.Message,
-			"sources": []any{},
+		result, err := engine.ChatStream(r.Context(), pool, oaiClient, req.Message, projectID, cfg.ChatModel, cfg.MaxContextTokens, req.History)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		// SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+
+		// Stream deltas as SSE events
+		_, streamErr := engine.ReadStreamDeltas(result.Stream, func(delta string) {
+			data, _ := json.Marshal(map[string]string{"delta": delta})
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
 		})
+
+		if streamErr != nil {
+			data, _ := json.Marshal(map[string]string{"error": streamErr.Error()})
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			return
+		}
+
+		// Final event with sources
+		done, _ := json.Marshal(map[string]any{
+			"done":    true,
+			"sources": result.Sources,
+		})
+		fmt.Fprintf(w, "data: %s\n\n", done)
+		flusher.Flush()
 	}
 }
 

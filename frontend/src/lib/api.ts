@@ -254,11 +254,68 @@ export const api = {
   },
 
   chat: {
-    send: (projectId: string, message: string) =>
-      request<ChatResponse>(`/projects/${projectId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ message }),
-      }),
+    stream: (
+      projectId: string,
+      message: string,
+      history: Array<{ role: string; content: string }>,
+      onDelta: (delta: string) => void,
+      onDone: (sources: ChatResponse["sources"]) => void,
+      onError: (error: string) => void,
+    ) => {
+      const controller = new AbortController();
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE}/projects/${projectId}/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message, history }),
+            signal: controller.signal,
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            onError(body.error || `Request failed: ${res.status}`);
+            return;
+          }
+          const reader = res.body?.getReader();
+          if (!reader) {
+            onError("No response body");
+            return;
+          }
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const json_str = line.slice(6);
+              try {
+                const event = JSON.parse(json_str);
+                if (event.error) {
+                  onError(event.error);
+                  return;
+                }
+                if (event.delta) {
+                  onDelta(event.delta);
+                } else if (event.done) {
+                  onDone(event.sources || []);
+                }
+              } catch {
+                // skip malformed JSON lines
+              }
+            }
+          }
+        } catch (err) {
+          if ((err as Error).name !== "AbortError") {
+            onError((err as Error).message || "Stream failed");
+          }
+        }
+      })();
+      return controller;
+    },
     history: (projectId: string) =>
       request<Array<{ role: string; content: string }>>(
         `/projects/${projectId}/chat/history`,

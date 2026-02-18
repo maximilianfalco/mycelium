@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   api,
   type Project,
@@ -27,6 +29,8 @@ import {
 } from "@/components/debug/code-viewer";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
+import { CopyIcon } from "lucide-react";
+import { toast } from "sonner";
 
 function IndexedAt({ date }: { date: string }) {
   const formatted = new Date(date).toLocaleString();
@@ -63,10 +67,18 @@ export function ProjectDetail({
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [messages, setMessages] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
+    Array<{
+      role: "user" | "assistant";
+      content: string;
+      sources?: Array<{ nodeId: string; filePath: string; qualifiedName: string }>;
+    }>
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -201,26 +213,76 @@ export function ProjectDetail({
     }
   };
 
-  const handleChat = async () => {
-    if (!chatInput.trim()) return;
+  const scrollToBottom = () => {
+    chatScrollRef.current?.scrollTo({
+      top: chatScrollRef.current.scrollHeight,
+    });
+  };
+
+  const handleChat = () => {
+    if (!chatInput.trim() || sending) return;
     const msg = chatInput;
     setChatInput("");
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
     setSending(true);
-    try {
-      const res = await api.chat.send(id, msg);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.message },
-      ]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "error: failed to get response" },
-      ]);
-    } finally {
-      setSending(false);
-    }
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: msg },
+      { role: "assistant", content: "" },
+    ]);
+    setTimeout(scrollToBottom, 0);
+
+    const assistantIdx = { current: -1 };
+
+    const history = messagesRef.current
+      .filter((m) => m.content)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+    const controller = api.chat.stream(
+      id,
+      msg,
+      history,
+      (delta) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          if (assistantIdx.current === -1) {
+            assistantIdx.current = next.length - 1;
+          }
+          const idx = assistantIdx.current;
+          next[idx] = { ...next[idx], content: next[idx].content + delta };
+          return next;
+        });
+        scrollToBottom();
+      },
+      (sources) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const idx = assistantIdx.current >= 0 ? assistantIdx.current : next.length - 1;
+          next[idx] = { ...next[idx], sources: sources.length ? sources : undefined };
+          return next;
+        });
+        setSending(false);
+        abortRef.current = null;
+      },
+      (error) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const idx = assistantIdx.current >= 0 ? assistantIdx.current : next.length - 1;
+          const existing = next[idx].content;
+          next[idx] = {
+            ...next[idx],
+            content: existing || `error: ${error}`,
+          };
+          return next;
+        });
+        setSending(false);
+        abortRef.current = null;
+      },
+    );
+    abortRef.current = controller;
   };
 
   const handleDelete = async () => {
@@ -506,7 +568,10 @@ export function ProjectDetail({
 
         {tab === "chat" && (
           <div className="flex flex-col h-[60vh]">
-            <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+            <div
+              ref={chatScrollRef}
+              className="flex-1 overflow-y-auto space-y-4 mb-4"
+            >
               {messages.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-16">
                   ask questions about your indexed code
@@ -524,14 +589,49 @@ export function ProjectDetail({
                   <span className="text-xs text-muted-foreground block mb-1">
                     {m.role === "user" ? "you" : "mycelium"}
                   </span>
-                  {m.content}
+                  {m.role === "user" ? (
+                    <div className="whitespace-pre-wrap">{m.content}</div>
+                  ) : m.content ? (
+                    <div className="prose prose-sm prose-invert max-w-none prose-pre:bg-accent/50 prose-pre:border prose-pre:border-border prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none prose-headings:text-foreground prose-headings:font-medium prose-p:text-foreground prose-li:text-foreground prose-strong:text-foreground">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {m.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : sending ? (
+                    <span className="text-muted-foreground">thinking...</span>
+                  ) : null}
+                  {m.sources && m.sources.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-border">
+                      <span className="text-xs text-muted-foreground block mb-1">
+                        sources
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {m.sources.map((s, j) => (
+                          <span
+                            key={j}
+                            className="text-xs bg-accent/50 px-2 py-0.5 font-mono truncate max-w-[300px]"
+                            title={`${s.filePath} — ${s.qualifiedName}`}
+                          >
+                            {s.qualifiedName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {m.role === "assistant" && m.content && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(m.content);
+                        toast("copied to clipboard");
+                      }}
+                      className="mt-2 text-muted-foreground hover:text-foreground"
+                      title="Copy response"
+                    >
+                      <CopyIcon className="size-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
-              {sending && (
-                <div className="text-sm text-muted-foreground px-3 py-2">
-                  thinking...
-                </div>
-              )}
             </div>
             <div className="flex gap-2">
               <Textarea
