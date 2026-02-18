@@ -157,16 +157,28 @@ func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, o
 		result.TotalDeleted += sourceResult.NodesDeleted
 	}
 
-	// TODO(critical): Stage 4b — cross-source import resolution.
-	// Currently each source resolves imports only against its own workspace alias map.
-	// If a colony has multiple repos (e.g., readme + gitto) and one imports from the
-	// other, those imports land in unresolved_refs. After all sources finish indexing,
-	// we need a pass that:
-	//   1. Collects all unresolved_refs across all workspaces in this project
-	//   2. Checks each specifier against package names from sibling workspaces
-	//   3. Creates resolved cross-workspace edges (imports, depends_on)
-	// The data model supports this already — node IDs are globally unique. Without this,
-	// multi-repo colonies lose structural coupling visibility (semantic search still works).
+	// Stage 4b: Cross-source import resolution
+	// Run when the project has multiple code sources — even if only one was processed
+	// this run, previous runs may have indexed sibling sources.
+	codeSources := 0
+	for _, s := range sources {
+		if s.IsCode {
+			codeSources++
+		}
+	}
+	if codeSources > 1 && result.SourcesProcessed > 0 {
+		updateStatus("cross-resolving", "resolving cross-source imports")
+		crossResult, err := ResolveCrossSources(ctx, pool, projectID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("cross-source resolution: %v", err))
+		} else if crossResult.ResolvedCount > 0 {
+			slog.Info("cross-source imports resolved",
+				"project", projectID,
+				"resolved", crossResult.ResolvedCount,
+				"edgesCreated", crossResult.EdgesCreated,
+			)
+		}
+	}
 
 	result.Duration = time.Since(start)
 	slog.Info("pipeline complete",
