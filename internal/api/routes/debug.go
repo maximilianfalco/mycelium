@@ -334,7 +334,8 @@ func debugWorkspace() http.HandlerFunc {
 func debugChanges() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Path string `json:"path"`
+			Path              string  `json:"path"`
+			LastIndexedCommit *string `json:"lastIndexedCommit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -345,15 +346,35 @@ func debugChanges() http.HandlerFunc {
 			return
 		}
 
+		cs, err := indexer.DetectChanges(r.Context(), req.Path, req.LastIndexedCommit, nil, 100)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("detecting changes: %v", err))
+			return
+		}
+
+		// Ensure non-nil slices for JSON
+		added := cs.AddedFiles
+		if added == nil {
+			added = []string{}
+		}
+		modified := cs.ModifiedFiles
+		if modified == nil {
+			modified = []string{}
+		}
+		deleted := cs.DeletedFiles
+		if deleted == nil {
+			deleted = []string{}
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
-			"isGitRepo":         true,
-			"currentCommit":     "a1b2c3d",
-			"lastIndexedCommit": "e4f5g6h",
-			"isFullIndex":       false,
-			"addedFiles":        []string{"src/new-feature.ts", "src/components/Modal.tsx"},
-			"modifiedFiles":     []string{"src/index.ts", "src/lib/api.ts", "package.json"},
-			"deletedFiles":      []string{"src/deprecated.ts"},
-			"thresholdExceeded": false,
+			"isGitRepo":         cs.IsGitRepo,
+			"currentCommit":     cs.CurrentCommit,
+			"lastIndexedCommit": cs.LastIndexedCommit,
+			"isFullIndex":       cs.IsFullIndex,
+			"addedFiles":        added,
+			"modifiedFiles":     modified,
+			"deletedFiles":      deleted,
+			"thresholdExceeded": cs.ThresholdExceeded,
 		})
 	}
 }
