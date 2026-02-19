@@ -1,6 +1,6 @@
 # Mycelium
 
-A local-only code intelligence tool. Parses local repos, builds a structural graph of code relationships, embeds code for semantic search, and exposes it through a chat UI and (eventually) an MCP server.
+A local-only code intelligence tool. Parses local repos, builds a structural graph of code relationships, embeds code for semantic search, and exposes it through a chat UI and an MCP server.
 
 ## Tech Stack
 
@@ -17,52 +17,61 @@ A local-only code intelligence tool. Parses local repos, builds a structural gra
 
 ```
 mycelium/
-├── cmd/myc/main.go              # CLI entrypoint (cobra)
-├── internal/                    # Go convention — private packages
+├── cmd/myc/
+│   ├── main.go                  # CLI entrypoint
+│   ├── root.go                  # Root cobra command (registers subcommands)
+│   ├── serve.go                 # `myc serve` — starts the API server
+│   ├── mcp.go                   # `myc mcp` — starts the MCP server (stdio)
+│   └── colonies.go              # `myc colonies list` — list projects
+├── internal/
 │   ├── config/config.go         # .env loading, typed Config struct
 │   ├── db/
 │   │   ├── pool.go              # pgxpool connection + health check
 │   │   └── schema.sql           # DDL for all tables (auto-applied by Docker)
 │   ├── projects/
 │   │   ├── models.go            # Project, ProjectSource, ScanResult structs
-│   │   ├── manager.go           # CRUD for projects and sources (real DB)
+│   │   ├── manager.go           # CRUD for projects and sources
 │   │   └── scanner.go           # Filesystem scanner (detects git repos, monorepos)
 │   ├── api/
 │   │   ├── server.go            # Chi router, middleware, graceful shutdown
 │   │   └── routes/
 │   │       ├── helpers.go       # writeJSON, writeError
 │   │       ├── projects.go      # Project/source CRUD endpoints
-│   │       ├── scan.go          # POST /scan (real filesystem scan)
-│   │       ├── debug.go         # 8 POST /debug/* endpoints (spore lab) — all real
-│   │       ├── indexing.go      # POST /index, GET /index/status — real
-│   │       ├── search.go        # Semantic + structural search — real
-│   │       └── chat.go          # Streamed chat with context assembly — real
+│   │       ├── scan.go          # POST /scan
+│   │       ├── debug.go         # 8 POST /debug/* endpoints (spore lab)
+│   │       ├── indexing.go      # POST /index, GET /index/status
+│   │       ├── search.go        # Semantic + structural search
+│   │       └── chat.go          # Streamed chat with context assembly
 │   ├── indexer/
 │   │   ├── pipeline.go          # 7-stage indexing pipeline orchestrator
 │   │   ├── change_detector.go   # Git diff / mtime change detection
 │   │   ├── crawler.go           # Directory crawling with gitignore support
 │   │   ├── import_resolver.go   # Import resolution against alias maps
+│   │   ├── cross_resolver.go    # Cross-source import resolution between workspaces
 │   │   ├── graph_builder.go     # Node/edge upsert into Postgres
 │   │   ├── embedder.go          # OpenAI embedding with batching + retry
 │   │   ├── chunker.go           # Embedding input preparation + tokenization
 │   │   ├── parsers/             # Tree-sitter parsers (TS/JS, Go)
 │   │   └── detectors/           # Workspace detection (Node.js, Go)
-│   └── engine/
-│       ├── chat.go              # Streamed chat with OpenAI + context assembly
-│       ├── context_assembler.go # Scores and ranks nodes for LLM context
-│       ├── graph_query.go       # Structural queries (callers, deps, etc.)
-│       └── search.go            # Semantic search via pgvector
-├── frontend/                    # Next.js app
+│   ├── engine/
+│   │   ├── chat.go              # Streamed chat with OpenAI + context assembly
+│   │   ├── context_assembler.go # Scores and ranks nodes for LLM context
+│   │   ├── graph_query.go       # Structural queries (callers, deps, etc.)
+│   │   └── search.go            # Hybrid search (semantic + keyword via RRF)
+│   └── mcp/
+│       └── server.go            # MCP server (search, query_graph, list/detect projects)
+├── frontend/
 │   └── src/
 │       ├── app/
 │       │   ├── layout.tsx       # Root layout (dark mode, JetBrains Mono)
 │       │   ├── page.tsx         # Colony list (project manager)
 │       │   └── projects/[id]/
-│       │       └── page.tsx     # Project detail (sources + chat tabs)
+│       │       └── page.tsx     # Project detail page
 │       ├── components/
 │       │   ├── ui/              # shadcn components
 │       │   ├── colony-list.tsx  # Home page colony list
-│       │   ├── project-detail.tsx # Project detail (3 tabs: substrates, forage, spore lab)
+│       │   ├── project-detail.tsx # Project detail (4 tabs: substrates, forage, spore lab, mycelial map)
+│       │   ├── settings-panel.tsx # Colony settings (max file size, root path, reindex)
 │       │   └── debug/           # Spore lab (debug) components
 │       │       ├── debug-tab.tsx             # Container: path inputs + stage cards
 │       │       ├── stage-card.tsx            # Reusable collapsible card with run button
@@ -70,7 +79,8 @@ mycelium/
 │       │       ├── parse-output.tsx          # Node cards + edge list
 │       │       ├── workspace-output.tsx      # Package tree + alias map
 │       │       ├── changes-output.tsx        # File diff lists
-│       │       └── embedding-playground.tsx  # Two textareas + compare + similarity
+│       │       ├── embedding-playground.tsx  # Two textareas + compare + similarity
+│       │       └── code-viewer.tsx           # Side panel file viewer with line highlighting
 │       └── lib/api.ts           # Typed API client for all endpoints
 ├── docker-compose.yml           # Postgres + pgvector (port 5433) + pgAdmin (port 5050)
 ├── Makefile                     # build, test, lint, dev, etc.
@@ -107,6 +117,7 @@ pgAdmin available at http://localhost:5050 (email: admin@mycelium.dev, password:
 - 7 tables: `projects`, `project_sources`, `workspaces`, `packages`, `nodes`, `edges`, `unresolved_refs`
 - Schema auto-applied on first `docker compose up` via init script
 - No ORM — raw SQL via pgx (graph queries need recursive CTEs, pgvector operators)
+- Hybrid search: `nodes.search_vector` is a generated tsvector column (weighted: A = name/qualified_name, B = signature, C = docstring) with a GIN index, used alongside pgvector for Reciprocal Rank Fusion
 - `internal/` is a special Go directory — compiler enforces it can't be imported by external code. Do NOT rename it.
 
 ## API Status
@@ -122,6 +133,7 @@ All endpoints are fully implemented (no stubs or mocks remain).
 | Indexing | Real (7-stage pipeline, background jobs, status polling) |
 | Search | Real (semantic via pgvector, structural via graph queries) |
 | Chat | Real (streamed via OpenAI, context assembly from graph + embeddings) |
+| MCP | Real (stdio transport, 4 tools: search, query_graph, list_projects, detect_project) |
 
 ## Git
 
@@ -153,3 +165,7 @@ All endpoints are fully implemented (no stubs or mocks remain).
 ## Spore Lab (Debug Mode)
 
 The "spore lab" tab in the project detail view runs individual indexing pipeline stages interactively. All 8 debug endpoints (`/debug/*`) are fully implemented — crawl, parse, resolve, read-file, embed-text, compare, workspace, and changes.
+
+## Mycelium MCP
+
+This project is indexed by its own MCP server (project ID: `initial-test-colony`). Use the Mycelium MCP tools for **exploration** — discovering callers/callees (`query_graph`), finding code you don't know the location of (`search`), and understanding relationships across the codebase. For targeted questions where you already know the file paths, prefer direct file reads instead — they're faster and less noisy. Use `detect_project` with the cwd to resolve the project ID if needed.
