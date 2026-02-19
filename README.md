@@ -5,7 +5,7 @@ Local-only code intelligence tool. Parses local repos, builds a structural graph
 ## What it does
 
 1. **Index** local repos — crawls files, parses them with tree-sitter, detects workspaces and resolves imports, embeds code with OpenAI, and stores everything in a structural graph (Postgres + pgvector).
-2. **Search** the graph — semantic search (vector similarity) and structural queries (callers, callees, dependencies, dependents, importers, file context).
+2. **Search** the graph — hybrid search (keyword matching + vector similarity, fused via Reciprocal Rank Fusion) and structural queries (callers, callees, dependencies, dependents, importers, file context).
 3. **Chat** about your code — ask questions and get answers grounded in the indexed codebase, with source attribution and streamed responses.
 
 ## Supported languages
@@ -25,6 +25,7 @@ Local-only code intelligence tool. Parses local repos, builds a structural graph
 | Database | Postgres 16 + pgvector (Docker) |
 | Parsing | Tree-sitter (TypeScript, JavaScript, Go) |
 | Embeddings | OpenAI `text-embedding-3-small` |
+| Search | Hybrid: Postgres full-text search + pgvector cosine similarity, fused via RRF |
 | Chat | OpenAI `gpt-4o` |
 
 ## Quick start
@@ -73,6 +74,34 @@ The indexing pipeline runs in 7 stages:
 5. **Import resolution** — resolves import specifiers against the alias map, tsconfig paths, and filesystem. Produces resolved edges and tracks unresolved refs.
 6. **Embedding** — compares body hashes to skip unchanged nodes, batches the rest through OpenAI `text-embedding-3-small`.
 7. **Graph storage** — upserts nodes/edges/embeddings into Postgres, cleans up stale nodes from deleted files.
+
+## Search
+
+Search combines two ranking signals to surface the most relevant code symbols:
+
+**Hybrid search (keyword + semantic)**
+
+Every query runs two searches in parallel within a single Postgres transaction:
+
+1. **Keyword search** — Postgres full-text search (`tsvector` / `ts_rank`) over a GIN-indexed generated column. Fields are weighted: symbol names and qualified names (highest priority), signatures, then docstrings. Exact name matches like `BuildGraph` or `handleLogin` rank at the top.
+2. **Semantic search** — pgvector cosine similarity against OpenAI `text-embedding-3-small` embeddings. Catches conceptually related results even when the wording differs.
+
+Results are merged using **Reciprocal Rank Fusion (RRF)**: `score = 1/(k + rank_vector) + 1/(k + rank_keyword)` with k=60. This is the same algorithm used by Elasticsearch, Pinecone, and other hybrid search systems. Each source provides 3x the requested limit as candidates before fusion.
+
+The `search_vector` column is a Postgres `GENERATED ALWAYS AS ... STORED` column — automatically maintained on every insert/update with zero application code.
+
+**Structural queries**
+
+Graph traversal queries that follow edges in the code graph:
+
+| Query type | What it returns |
+|---|---|
+| `callers` | Functions that call the target symbol |
+| `callees` | Functions called by the target symbol |
+| `importers` | Files that import the target |
+| `dependencies` | Transitive dependencies (up to 5 hops) |
+| `dependents` | Transitive dependents (up to 5 hops) |
+| `file` | All symbols in the same file |
 
 ## Database
 
