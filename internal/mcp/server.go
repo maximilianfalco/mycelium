@@ -34,7 +34,7 @@ func NewServer(pool *pgxpool.Pool, client *openai.Client) *server.MCPServer {
 
 func searchTool() mcp.Tool {
 	return mcp.NewTool("search",
-		mcp.WithDescription("Semantic search across indexed code in a project. Returns matching symbols with source code, file paths, signatures, docstrings, and similarity scores."),
+		mcp.WithDescription("Hybrid search (keyword + semantic via RRF) across indexed code in a project. Returns matching symbols with file paths, signatures, and docstrings. Top results include full source code."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("query",
@@ -46,7 +46,7 @@ func searchTool() mcp.Tool {
 			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
 		),
 		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results (1-100, default 10)"),
+			mcp.Description("Maximum number of results (1-100, default 5). Top 3 results include full source code; the rest show signatures only."),
 		),
 		mcp.WithString("kinds",
 			mcp.Description("Comma-separated node kinds to filter (e.g. 'function,class,interface')"),
@@ -73,7 +73,7 @@ func queryGraphTool() mcp.Tool {
 			mcp.Enum("callers", "callees", "importers", "dependencies", "dependents", "file"),
 		),
 		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results (1-100, default 10)"),
+			mcp.Description("Maximum number of results (1-100, default 10). Top 3 results include full source code; the rest show signatures only."),
 		),
 	)
 }
@@ -111,7 +111,7 @@ func searchHandler(pool *pgxpool.Pool, client *openai.Client) server.ToolHandler
 			return mcp.NewToolResultError("missing required parameter: project_id"), nil
 		}
 
-		limit := req.GetInt("limit", 10)
+		limit := req.GetInt("limit", 5)
 
 		var kinds []string
 		if k := req.GetString("kinds", ""); k != "" {
@@ -256,11 +256,13 @@ func detectProjectHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 // --- Formatters ---
 
+const fullSourceLimit = 3
+
 func formatSearchResults(results []engine.SearchResult) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## %d result(s)\n\n", len(results)))
 
-	for _, r := range results {
+	for i, r := range results {
 		b.WriteString(fmt.Sprintf("### `%s` (%s) — %.2f similarity\n", r.QualifiedName, r.Kind, r.Similarity))
 		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
 		if r.Signature != "" {
@@ -269,7 +271,7 @@ func formatSearchResults(results []engine.SearchResult) string {
 		if r.Docstring != "" {
 			b.WriteString(fmt.Sprintf("**Docstring:** %s\n", r.Docstring))
 		}
-		if r.SourceCode != "" {
+		if i < fullSourceLimit && r.SourceCode != "" {
 			lang := langFromPath(r.FilePath)
 			b.WriteString(fmt.Sprintf("\n```%s\n%s\n```\n", lang, r.SourceCode))
 		}
@@ -283,7 +285,7 @@ func formatNodeResults(results []engine.NodeResult, queryType string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## %d %s result(s)\n\n", len(results), queryType))
 
-	for _, r := range results {
+	for i, r := range results {
 		b.WriteString(fmt.Sprintf("### `%s` (%s)\n", r.QualifiedName, r.Kind))
 		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
 		if r.Signature != "" {
@@ -295,7 +297,7 @@ func formatNodeResults(results []engine.NodeResult, queryType string) string {
 		if r.Depth > 0 {
 			b.WriteString(fmt.Sprintf("**Depth:** %d\n", r.Depth))
 		}
-		if r.SourceCode != "" {
+		if i < fullSourceLimit && r.SourceCode != "" {
 			lang := langFromPath(r.FilePath)
 			b.WriteString(fmt.Sprintf("\n```%s\n%s\n```\n", lang, r.SourceCode))
 		}
