@@ -1,4 +1,4 @@
-# mycelium
+# 🍄‍🟫 mycelium
 
 Local-only code intelligence tool. Parses local repos, builds a structural graph of code relationships, embeds code for semantic search, and exposes it through a chat UI.
 

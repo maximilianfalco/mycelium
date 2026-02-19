@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { Github } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -31,6 +32,14 @@ export default function RootLayout({
               </span>
               <span className="text-xs text-muted-foreground">v0.1</span>
             </div>
+            <a
+              href="https://github.com/maximilianfalco/mycelium"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Github size={18} />
+            </a>
           </header>
           <main>{children}</main>
         </div>
