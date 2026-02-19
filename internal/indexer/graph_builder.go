@@ -248,6 +248,16 @@ func upsertNodes(ctx context.Context, tx pgx.Tx, workspaceID string, packageIDs 
 }
 
 func upsertEdges(ctx context.Context, tx pgx.Tx, workspaceID string, packageIDs map[string]string, input *BuildInput) (int, error) {
+	// Delete stale edges from previous runs. Without this, edges that the
+	// resolver no longer produces (e.g. after fixing false positives) would
+	// persist forever because upsert only inserts/updates, never deletes.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM edges WHERE source_id IN (
+			SELECT id FROM nodes WHERE workspace_id = $1
+		)`, workspaceID); err != nil {
+		return 0, fmt.Errorf("cleaning up stale edges: %w", err)
+	}
+
 	// Collect all edges: resolved imports/calls + structural contains edges + depends_on
 	type edgeRow struct {
 		sourceID string

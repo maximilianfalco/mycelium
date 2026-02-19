@@ -215,7 +215,7 @@ func TestCallEdges(t *testing.T) {
 	_ = path
 }
 
-func TestCallEdgesSkipNestedLambdas(t *testing.T) {
+func TestCallEdgesTraversesNestedLambdas(t *testing.T) {
 	src := []byte(`function outer(): void {
   const inner = (x: number) => doSomething(x);
   console.log("hello");
@@ -228,8 +228,55 @@ func TestCallEdgesSkipNestedLambdas(t *testing.T) {
 	if findEdge(result.Edges, "calls", "outer", "console.log") == nil {
 		t.Error("expected outer calls console.log")
 	}
-	if findEdge(result.Edges, "calls", "outer", "doSomething") != nil {
-		t.Error("should NOT capture doSomething inside nested arrow")
+	if findEdge(result.Edges, "calls", "outer", "doSomething") == nil {
+		t.Error("expected outer calls doSomething (inside nested arrow)")
+	}
+}
+
+func TestCallEdgesTraversesCallbacks(t *testing.T) {
+	src := []byte(`function fetchData(url: string): void {
+  fetch(url).then((res) => {
+    res.json().then((data) => {
+      processData(data);
+    });
+  });
+  console.log("fetching");
+}`)
+	result, err := ParseFile("test.ts", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if findEdge(result.Edges, "calls", "fetchData", "fetch") == nil {
+		t.Error("expected fetchData calls fetch")
+	}
+	if findEdge(result.Edges, "calls", "fetchData", "processData") == nil {
+		t.Error("expected fetchData calls processData (inside nested callbacks)")
+	}
+	if findEdge(result.Edges, "calls", "fetchData", "console.log") == nil {
+		t.Error("expected fetchData calls console.log")
+	}
+}
+
+func TestCallEdgesSkipsNamedFunctionDeclarations(t *testing.T) {
+	src := []byte(`function outer(): void {
+  function inner(): void {
+    hiddenCall();
+  }
+  visibleCall();
+}`)
+	result, err := ParseFile("test.ts", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if findEdge(result.Edges, "calls", "outer", "visibleCall") == nil {
+		t.Error("expected outer calls visibleCall")
+	}
+	// Named inner function declarations are separate scope — calls inside them
+	// should NOT be attributed to the enclosing function
+	if findEdge(result.Edges, "calls", "outer", "hiddenCall") != nil {
+		t.Error("should NOT capture hiddenCall from named inner function declaration")
 	}
 }
 
@@ -486,5 +533,49 @@ func TestClassNoHeritage(t *testing.T) {
 		if e.Kind == "extends" || e.Kind == "implements" {
 			t.Errorf("should not have %s edge for class without heritage", e.Kind)
 		}
+	}
+}
+
+func TestJSXComponentCalls(t *testing.T) {
+	src := []byte(`import { Header } from "./header";
+
+function App(): JSX.Element {
+  return (
+    <Layout>
+      <Header />
+      <div><Content items={data} /></div>
+    </Layout>
+  );
+}`)
+	result, err := ParseFile("test.tsx", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if findEdge(result.Edges, "calls", "App", "Layout") == nil {
+		t.Error("expected App calls Layout (JSX opening element)")
+	}
+	if findEdge(result.Edges, "calls", "App", "Header") == nil {
+		t.Error("expected App calls Header (JSX self-closing)")
+	}
+	if findEdge(result.Edges, "calls", "App", "Content") == nil {
+		t.Error("expected App calls Content (nested in HTML tag)")
+	}
+	if findEdge(result.Edges, "calls", "App", "div") != nil {
+		t.Error("should NOT detect HTML tags as calls")
+	}
+}
+
+func TestJSXNamespacedComponent(t *testing.T) {
+	src := []byte(`function Form(): JSX.Element {
+  return <ui.Button onClick={handleClick} />;
+}`)
+	result, err := ParseFile("test.tsx", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if findEdge(result.Edges, "calls", "Form", "ui.Button") == nil {
+		t.Error("expected Form calls ui.Button (namespaced JSX)")
 	}
 }

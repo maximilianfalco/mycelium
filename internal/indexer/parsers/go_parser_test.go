@@ -334,7 +334,7 @@ func main() {
 	}
 }
 
-func TestGoCallSkipsClosure(t *testing.T) {
+func TestGoCallTraversesClosure(t *testing.T) {
 	src := []byte(`package main
 
 func outer() {
@@ -348,14 +348,62 @@ func outer() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if findEdge(result.Edges, "calls", "outer", "hidden") != nil {
-		t.Error("should NOT capture hidden() inside func literal")
+	if findEdge(result.Edges, "calls", "outer", "hidden") == nil {
+		t.Error("expected outer calls hidden (inside closure)")
 	}
 	if findEdge(result.Edges, "calls", "outer", "visible") == nil {
 		t.Error("expected outer calls visible")
 	}
 	if findEdge(result.Edges, "calls", "outer", "fn") == nil {
 		t.Error("expected outer calls fn")
+	}
+}
+
+func TestGoCallInsideGoroutine(t *testing.T) {
+	src := []byte(`package main
+
+func launcher() {
+	go func() {
+		doWork()
+		fmt.Println("done")
+	}()
+	cleanup()
+}`)
+	result, err := ParseFile("test.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findEdge(result.Edges, "calls", "launcher", "doWork") == nil {
+		t.Error("expected launcher calls doWork (inside goroutine)")
+	}
+	if findEdge(result.Edges, "calls", "launcher", "fmt.Println") == nil {
+		t.Error("expected launcher calls fmt.Println (inside goroutine)")
+	}
+	if findEdge(result.Edges, "calls", "launcher", "cleanup") == nil {
+		t.Error("expected launcher calls cleanup")
+	}
+}
+
+func TestGoCallNestedClosures(t *testing.T) {
+	src := []byte(`package main
+
+func deep() {
+	fn := func() {
+		go func() {
+			innerCall()
+		}()
+	}
+	fn()
+}`)
+	result, err := ParseFile("test.go", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findEdge(result.Edges, "calls", "deep", "innerCall") == nil {
+		t.Error("expected deep calls innerCall (nested closure + goroutine)")
+	}
+	if findEdge(result.Edges, "calls", "deep", "fn") == nil {
+		t.Error("expected deep calls fn")
 	}
 }
 

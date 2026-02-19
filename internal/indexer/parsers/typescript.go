@@ -545,8 +545,31 @@ func (p *TypeScriptParser) collectCalls(source []byte, node *sitter.Node, caller
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 
-		// Skip nested arrow/function expressions to avoid capturing calls inside lambdas
-		if child.Type() == "arrow_function" || child.Type() == "function_expression" || child.Type() == "function_declaration" {
+		// Traverse into nested arrow/function expressions — attribute calls to the enclosing named function
+		if child.Type() == "arrow_function" || child.Type() == "function_expression" {
+			body := child.ChildByFieldName("body")
+			if body != nil {
+				// For concise arrows (no braces), the body is the expression itself — check it directly
+				if body.Type() == "call_expression" {
+					callee := body.ChildByFieldName("function")
+					if callee != nil {
+						calleeName := extractCalleeName(source, callee)
+						if calleeName != "" {
+							result.Edges = append(result.Edges, EdgeInfo{
+								Source: callerName,
+								Target: calleeName,
+								Kind:   "calls",
+								Line:   int(body.StartPoint().Row) + 1,
+							})
+						}
+					}
+				}
+				p.collectCalls(source, body, callerName, result)
+			}
+			continue
+		}
+		// Skip nested named function declarations (they are separate nodes)
+		if child.Type() == "function_declaration" {
 			continue
 		}
 
@@ -565,6 +588,18 @@ func (p *TypeScriptParser) collectCalls(source []byte, node *sitter.Node, caller
 			}
 		}
 
+		// JSX elements are component calls: <Component /> or <Component>...</Component>
+		if child.Type() == "jsx_self_closing_element" || child.Type() == "jsx_opening_element" {
+			if tag := jsxTagName(source, child); tag != "" {
+				result.Edges = append(result.Edges, EdgeInfo{
+					Source: callerName,
+					Target: tag,
+					Kind:   "calls",
+					Line:   int(child.StartPoint().Row) + 1,
+				})
+			}
+		}
+
 		p.collectCalls(source, child, callerName, result)
 	}
 }
@@ -580,6 +615,28 @@ func extractCalleeName(source []byte, node *sitter.Node) string {
 	default:
 		return ""
 	}
+}
+
+// jsxTagName extracts the component name from a JSX element.
+// Returns the name for React components, skips HTML tags like <div>.
+// Components: uppercase identifiers (Button), member expressions (ui.Button).
+func jsxTagName(source []byte, node *sitter.Node) string {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		switch child.Type() {
+		case "member_expression":
+			// Namespace components like <ui.Button /> are always React components
+			return nodeContent(source, child)
+		case "identifier":
+			name := nodeContent(source, child)
+			// Uppercase = React component, lowercase = HTML tag
+			if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+				return name
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (p *TypeScriptParser) extractTypeEdges(source []byte, root *sitter.Node, result *ParseResult) {

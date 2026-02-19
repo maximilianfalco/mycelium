@@ -405,6 +405,52 @@ func TestResolveImports_SubpathImport(t *testing.T) {
 	assertResolved(t, result.Resolved[0], "@test/core/src/validator", "packages/core/src/validator.ts")
 }
 
+func TestResolveImports_CallResolution_BuiltinMethodsSkipped(t *testing.T) {
+	rawEdges := []parsers.EdgeInfo{
+		{Source: "src/index.ts", Target: "myFunc", Kind: "contains", Line: 1},
+		{Source: "src/index.ts", Target: "split", Kind: "contains", Line: 5},
+		{Source: "myFunc", Target: "user.email.split", Kind: "calls", Line: 2},
+		{Source: "myFunc", Target: "headers.authorization.replace", Kind: "calls", Line: 3},
+		{Source: "myFunc", Target: "items.filter", Kind: "calls", Line: 4},
+	}
+	nodes := []parsers.NodeInfo{
+		{Name: "myFunc", QualifiedName: "myFunc", Kind: "function"},
+		{Name: "split", QualifiedName: "split", Kind: "function"},
+	}
+
+	result := ResolveImports(rawEdges, nil, nil, nodes, []string{"src/index.ts"}, "/root")
+
+	for _, r := range result.Resolved {
+		if r.Kind == "calls" {
+			t.Errorf("expected no resolved call edges (all built-in methods on instances), got %s -> %s", r.Source, r.Target)
+		}
+	}
+}
+
+func TestResolveImports_CallResolution_DirectCallStillResolves(t *testing.T) {
+	rawEdges := []parsers.EdgeInfo{
+		{Source: "src/index.ts", Target: "myFunc", Kind: "contains", Line: 1},
+		{Source: "src/index.ts", Target: "split", Kind: "contains", Line: 5},
+		{Source: "myFunc", Target: "split", Kind: "calls", Line: 2},
+	}
+	nodes := []parsers.NodeInfo{
+		{Name: "myFunc", QualifiedName: "myFunc", Kind: "function"},
+		{Name: "split", QualifiedName: "split", Kind: "function"},
+	}
+
+	result := ResolveImports(rawEdges, nil, nil, nodes, []string{"src/index.ts"}, "/root")
+
+	var callEdges []ResolvedEdge
+	for _, r := range result.Resolved {
+		if r.Kind == "calls" {
+			callEdges = append(callEdges, r)
+		}
+	}
+	if len(callEdges) != 1 || callEdges[0].Target != "split" {
+		t.Errorf("expected direct call to split to resolve, got %+v", callEdges)
+	}
+}
+
 // --- Helpers ---
 
 func assertResolved(t *testing.T, edge ResolvedEdge, expectedTarget, expectedResolvedPath string) {

@@ -357,6 +357,12 @@ func resolveCallEdge(
 	}
 
 	// 3. Global search by name — only if unambiguous (exactly one match)
+	// Skip if the callee is a member expression with a common prototype method name,
+	// e.g. "user.email.split" → "split" would falsely match a user-defined split().
+	isMemberCall := strings.Contains(calleeName, ".")
+	if isMemberCall && isBuiltinMethodName(simpleName) {
+		return nil
+	}
 	if matches, ok := nodesByName[simpleName]; ok && len(matches) == 1 {
 		return &ResolvedEdge{
 			Source:       edge.Source,
@@ -521,6 +527,48 @@ func isGlobalCall(name string) bool {
 		}
 	}
 	return false
+}
+
+// isBuiltinMethodName returns true for method names that are common on JS/Go
+// built-in types (String, Array, Map, etc.). When a call like "obj.split()"
+// is extracted, we don't want tier-3 global resolution to match it to a
+// user-defined function named "split".
+var builtinMethodNames = map[string]bool{
+	// JS String methods
+	"split": true, "replace": true, "replaceAll": true, "match": true,
+	"trim": true, "trimStart": true, "trimEnd": true, "toLowerCase": true,
+	"toUpperCase": true, "startsWith": true, "endsWith": true, "includes": true,
+	"indexOf": true, "lastIndexOf": true, "slice": true, "substring": true,
+	"charAt": true, "charCodeAt": true, "padStart": true, "padEnd": true,
+	"repeat": true, "normalize": true, "search": true, "at": true,
+	// JS Array methods
+	"push": true, "pop": true, "shift": true, "unshift": true,
+	"map": true, "filter": true, "reduce": true, "reduceRight": true,
+	"find": true, "findIndex": true, "some": true, "every": true,
+	"forEach": true, "flat": true, "flatMap": true, "sort": true,
+	"reverse": true, "concat": true, "join": true, "fill": true,
+	"splice": true, "keys": true, "values": true, "entries": true,
+	// JS Object methods
+	"hasOwnProperty": true, "toString": true, "valueOf": true,
+	"toJSON": true, "toLocaleString": true,
+	// JS Promise methods
+	"then": true, "catch": true, "finally": true,
+	// JS Map/Set methods
+	"get": true, "set": true, "has": true, "clear": true, "add": true,
+	// JS Date methods
+	"getTime": true, "toISOString": true, "toDateString": true,
+	// JS common DOM/Node
+	"addEventListener": true, "removeEventListener": true,
+	"querySelector": true, "querySelectorAll": true,
+	"getAttribute": true, "setAttribute": true,
+	"createElement": true, "appendChild": true, "removeChild": true,
+	// Go common methods that shadow user functions
+	"Error": true, "String": true, "Close": true, "Read": true, "Write": true,
+	"Scan": true, "Next": true, "Err": true, "Rows": true,
+}
+
+func isBuiltinMethodName(name string) bool {
+	return builtinMethodNames[name]
 }
 
 // trackPackageDep records a package-level dependency based on file-level imports.

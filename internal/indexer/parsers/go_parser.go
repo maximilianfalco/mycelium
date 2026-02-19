@@ -332,8 +332,12 @@ func (p *GoParser) collectCallsGo(source []byte, node *sitter.Node, callerName s
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 
-		// Skip function literals (closures)
+		// Traverse into func literals (closures, goroutines) — attribute calls to the enclosing named function
 		if child.Type() == "func_literal" {
+			body := child.ChildByFieldName("body")
+			if body != nil {
+				p.collectCallsGo(source, body, callerName, result)
+			}
 			continue
 		}
 
