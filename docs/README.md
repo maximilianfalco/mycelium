@@ -6,6 +6,7 @@
 - [🔧 Prerequisites](getting-started/prerequisites.md)
 - [⚡ Quick Start Guide](getting-started/quick-start.md)
 - [🔌 MCP Server Setup](getting-started/mcp-setup.md)
+- [🤖 Using Mycelium with Claude Code](getting-started/claude-code-guide.md)
 - [⚙️ Environment Variables](getting-started/environment-variables.md)
 
 ### Architecture
