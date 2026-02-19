@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__mycelium__detect_project",
+      "mcp__mycelium__list_projects",
+      "mcp__mycelium__search",
+      "mcp__mycelium__query_graph"
+    ]
+  }
+}

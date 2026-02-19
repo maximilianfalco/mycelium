@@ -9,38 +9,50 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/maximilianfalco/mycelium/blob/main/LICENSE"><img src="https://img.shields.io/github/license/maximilianfalco/mycelium?style=flat-square" alt="License"/></a>
-  <a href="https://github.com/maximilianfalco/mycelium"><img src="https://img.shields.io/github/stars/maximilianfalco/mycelium?style=flat-square" alt="Stars"/></a>
-  <a href="https://github.com/maximilianfalco/mycelium/commits/main"><img src="https://img.shields.io/github/last-commit/maximilianfalco/mycelium?style=flat-square" alt="Last Commit"/></a>
+  <img src="https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square" alt="License"/>
   <img src="https://img.shields.io/badge/go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/typescript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/next.js-16-000000?style=flat-square&logo=next.js&logoColor=white" alt="Next.js"/>
   <img src="https://img.shields.io/badge/postgres-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="Postgres"/>
+  <a href="docs/README.md"><img src="https://img.shields.io/badge/docs-browse-8A2BE2?style=flat-square&logo=readthedocs&logoColor=white" alt="Docs"/></a>
+</p>
+
+<p align="center">
+  <a href="docs/getting-started/quick-start.md">Quick Start</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/getting-started/mcp-setup.md">MCP Setup</a> ·
+  <a href="docs/troubleshooting/faq.md">FAQ</a>
 </p>
 
 ---
 
-## What it does
+## 🧬 What it does
 
 Mycelium parses your local repos, builds a structural graph of every function, class, import, and call relationship, embeds the code for semantic search, and exposes everything through a chat UI and MCP server.
 
 1. **Index** — crawls files with tree-sitter, detects workspaces, resolves imports, embeds code via OpenAI, stores everything in a Postgres graph (pgvector + full-text search).
-2. **Search** — hybrid search fuses keyword matching and vector similarity via Reciprocal Rank Fusion. Structural queries traverse the code graph (callers, callees, dependencies, dependents, importers).
+2. **Search** — hybrid search fuses keyword matching and vector similarity via [Reciprocal Rank Fusion](docs/deep-dive/hybrid-search.md). Structural queries traverse the code graph (callers, callees, dependencies, dependents, importers).
 3. **Chat** — ask questions about your codebase and get answers grounded in the indexed graph, with source attribution and streamed responses.
-4. **MCP** — expose search and graph queries as tools for AI coding agents (Claude Code, Cursor, etc.).
+4. **MCP** — expose search and graph queries as [tools for AI coding agents](docs/getting-started/mcp-setup.md) (Claude Code, Cursor, etc.).
+
+## 🏗️ Architecture
 
 <details>
-<summary><strong>Design Structure</strong></summary>
+<summary><strong>Key design decisions</strong></summary>
 
 - **Postgres does everything.** No Redis, no Elasticsearch, no Milvus. pgvector handles embeddings, built-in full-text search handles keywords, recursive CTEs handle graph traversal. One database, one connection pool.
-- **Hybrid search with RRF.** Every query runs two searches in parallel — keyword (tsvector/ts_rank over a GIN-indexed generated column) and semantic (pgvector cosine similarity) — then merges results via Reciprocal Rank Fusion (`score = 1/(60 + rank_vector) + 1/(60 + rank_keyword)`). Exact name matches rank at the top; conceptual matches still surface.
-- **Incremental indexing.** Change detection via git diff (or mtime fallback). Body hash comparison skips re-embedding unchanged code. Only modified symbols hit the OpenAI API.
-- **Generated tsvector column.** `search_vector` is `GENERATED ALWAYS AS ... STORED` — Postgres auto-maintains it on every insert/update. Zero application code for keyword indexing.
-- **Tree-sitter for parsing.** Language-agnostic AST extraction. Each language gets a parser that produces the same `NodeInfo`/`EdgeInfo` interface. Adding a new language means implementing one interface.
+- **Hybrid search with RRF.** Two parallel searches (keyword + semantic) merged via Reciprocal Rank Fusion. Exact name matches rank first; conceptual matches still surface.
+- **Incremental indexing.** `git diff` + body hash comparison. Only modified symbols hit the OpenAI API.
+- **Generated tsvector column.** Postgres auto-maintains the keyword index on every insert/update. Zero application code.
+- **Tree-sitter for parsing.** Language-agnostic AST extraction. Adding a new language = implementing one interface.
+
+[Full design rationale →](docs/deep-dive/design-decisions.md)
 
 </details>
 
-## Quick start
+## ⚡ Quick Start
 
-**Prerequisites:** Go 1.22+, Node.js 22+, Docker
+**Prerequisites:** Go 1.22+, Node.js 22+, Docker ([full list](docs/getting-started/prerequisites.md))
 
 ```bash
 # 1. Clone and configure
@@ -62,9 +74,9 @@ This starts:
 | pgAdmin | [localhost:5050](http://localhost:5050) |
 
 <details>
-<summary><strong>MCP server setup (for Claude Code, Cursor, etc.)</strong></summary>
+<summary><strong>🔌 MCP server setup (for Claude Code, Cursor, etc.)</strong></summary>
 
-Add to your MCP client config:
+The `.mcp.json` in the project root auto-configures Claude Code. For other clients, add to your MCP config:
 
 ```json
 {
@@ -81,15 +93,14 @@ Add to your MCP client config:
 }
 ```
 
-Available MCP tools:
-- **`search`** — hybrid search (keyword + semantic) across indexed code
-- **`query_graph`** — structural traversal (callers, callees, importers, dependencies, dependents, file context)
-- **`list_projects`** — enumerate available projects
+Available tools: `search`, `query_graph`, `list_projects`
+
+[Full MCP setup guide →](docs/getting-started/mcp-setup.md)
 
 </details>
 
 <details>
-<summary><strong>All make commands</strong></summary>
+<summary><strong>📋 All make commands</strong></summary>
 
 ```bash
 make dev        # start full stack (Postgres + API + frontend) with hot reload
@@ -104,7 +115,7 @@ make frontend   # start Next.js frontend only
 
 </details>
 
-## Features
+## 🔍 Features
 
 ### Supported languages
 
@@ -116,13 +127,15 @@ make frontend   # start Next.js frontend only
 
 ### 7-stage indexing pipeline
 
-1. **Change detection** — git diff against last indexed commit (or mtime for non-git dirs). Threshold guard prevents accidental full re-indexes.
-2. **Workspace detection** — finds package.json / go.mod / go.work, resolves monorepo structure, builds alias maps from tsconfig paths.
-3. **File crawling** — walks the directory tree, respects .gitignore, filters by extension and file size.
-4. **Parsing** — tree-sitter extracts functions, classes, interfaces, types, enums, methods, and all edges (imports, calls, extends, implements, contains, uses_type). Parallel across 8 workers.
-5. **Import resolution** — resolves import specifiers against the alias map, tsconfig paths, and filesystem. Tracks unresolved refs separately.
-6. **Embedding** — compares body hashes to skip unchanged nodes, batches the rest through OpenAI `text-embedding-3-small` (1536-dim).
-7. **Graph storage** — upserts nodes/edges/embeddings into Postgres, cleans up stale nodes from deleted files.
+1. **Change detection** — git diff against last indexed commit. Threshold guard prevents accidental full re-indexes.
+2. **Workspace detection** — finds package.json / go.mod / go.work, resolves monorepo structure.
+3. **File crawling** — walks the directory tree, respects .gitignore.
+4. **Parsing** — tree-sitter extracts functions, classes, types, and all edges. 8 parallel workers.
+5. **Import resolution** — resolves specifiers against alias maps, tsconfig paths, and filesystem.
+6. **Embedding** — body hash comparison skips unchanged nodes. Batched OpenAI API calls.
+7. **Graph storage** — upserts to Postgres, cleans up stale nodes.
+
+[Full pipeline documentation →](docs/deep-dive/pipeline.md)
 
 ### Hybrid search
 
@@ -130,9 +143,11 @@ Every query runs two searches in a single Postgres transaction:
 
 | Signal | How it works |
 |---|---|
-| **Keyword** | Postgres full-text search (`tsvector`/`ts_rank`) over a GIN-indexed generated column. Weighted fields: symbol names (A), signatures (B), docstrings (C). |
-| **Semantic** | pgvector cosine similarity against 1536-dim OpenAI embeddings. IVFFlat index with configurable probes. |
-| **Fusion** | Reciprocal Rank Fusion: `score = 1/(60 + rank_vector) + 1/(60 + rank_keyword)`. Each source provides 3x candidates before fusion. |
+| **Keyword** | Postgres full-text search over GIN-indexed generated column. Weighted: names (A), signatures (B), docstrings (C). |
+| **Semantic** | pgvector cosine similarity against 1536-dim embeddings. IVFFlat index. |
+| **Fusion** | RRF: `score = 1/(60 + rank_vector) + 1/(60 + rank_keyword)`. 3x candidate oversampling. |
+
+[How hybrid search works →](docs/deep-dive/hybrid-search.md)
 
 ### Structural graph queries
 
@@ -141,15 +156,17 @@ Every query runs two searches in a single Postgres transaction:
 | `callers` | Functions that call the target symbol |
 | `callees` | Functions called by the target symbol |
 | `importers` | Files that import the target |
-| `dependencies` | Transitive dependencies (up to 5 hops via recursive CTE) |
-| `dependents` | Transitive dependents (up to 5 hops via recursive CTE) |
+| `dependencies` | Transitive dependencies (up to 5 hops) |
+| `dependents` | Transitive dependents (up to 5 hops) |
 | `file` | All symbols in the same file |
+
+[Graph query documentation →](docs/deep-dive/graph-queries.md)
 
 ### Streamed AI chat
 
 Context assembly pulls relevant code from the graph (hybrid search + graph expansion), packs it within a token budget, and streams responses via SSE with source attribution.
 
-## Tech stack
+## 🛠️ Tech Stack
 
 | Component | Choice |
 |---|---|
@@ -162,13 +179,7 @@ Context assembly pulls relevant code from the graph (hybrid search + graph expan
 | Chat | OpenAI `gpt-4o` |
 | MCP | `mcp-go` (stdio transport) |
 
-## Database
-
-7 tables: `projects`, `project_sources`, `workspaces`, `packages`, `nodes`, `edges`, `unresolved_refs`.
-
-Schema auto-applied on first `docker compose up`. No ORM — raw SQL via pgx. Graph traversal uses recursive CTEs, vector search uses pgvector's `<=>` operator, keyword search uses `tsvector` with GIN indexes.
-
-## Frontend
+## 🍄 Frontend
 
 The UI uses fungi terminology:
 
@@ -186,19 +197,26 @@ Four tabs per project:
 - **Spore lab** — run individual pipeline stages interactively for debugging
 - **Mycelial map** — graph visualization (coming soon)
 
-## Contributing
+## 📖 Documentation
 
-```bash
-# Run tests
-make test
+| Section | Description |
+|---|---|
+| [Quick Start](docs/getting-started/quick-start.md) | Get up and running in 1 minute |
+| [Prerequisites](docs/getting-started/prerequisites.md) | Required and optional dependencies |
+| [MCP Setup](docs/getting-started/mcp-setup.md) | Configure for Claude Code, Cursor, etc. |
+| [Environment Variables](docs/getting-started/environment-variables.md) | All configuration options |
+| [Design Decisions](docs/deep-dive/design-decisions.md) | Why Postgres-only, why RRF, why tree-sitter |
+| [Pipeline Orchestrator](docs/deep-dive/pipeline.md) | 7-stage indexing pipeline |
+| [Change Detector](docs/deep-dive/change-detector.md) | Git diff + mtime change detection |
+| [Workspace Detection](docs/deep-dive/detectors.md) | Monorepo and package discovery |
+| [Parsers & Crawling](docs/deep-dive/parsers.md) | Tree-sitter + file crawling |
+| [Chunker](docs/deep-dive/chunker.md) | Embedding input preparation + tokenization |
+| [Embedder](docs/deep-dive/embedder.md) | OpenAI API wrapper with batching + retry |
+| [Graph Builder](docs/deep-dive/graph-builder.md) | Postgres upsert, stale cleanup |
+| [Hybrid Search](docs/deep-dive/hybrid-search.md) | Keyword + semantic fusion via RRF |
+| [Graph Queries](docs/deep-dive/graph-queries.md) | Structural traversal (callers, deps, etc.) |
+| [FAQ](docs/troubleshooting/faq.md) | Common questions |
 
-# Lint
-make lint
-
-# Build
-make build
-```
-
-## License
+## 📄 License
 
 [Apache 2.0](LICENSE)
