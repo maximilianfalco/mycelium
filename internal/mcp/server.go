@@ -108,7 +108,7 @@ func searchHandler(pool *pgxpool.Pool, client *openai.Client) server.ToolHandler
 			}
 		}
 
-		results, err := engine.SemanticSearch(ctx, pool, client, query, projectID, limit, kinds)
+		results, err := engine.HybridSearch(ctx, pool, client, query, projectID, limit, kinds)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
 		}

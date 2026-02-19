@@ -107,3 +107,16 @@ CREATE INDEX idx_edges_kind ON edges(kind);
 CREATE INDEX idx_nodes_embedding ON nodes
     USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
+
+-- Full-text search support (hybrid search with RRF)
+-- Generated column auto-maintained by Postgres on insert/update.
+-- Weights: A = name/qualified_name, B = signature, C = docstring.
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS search_vector tsvector
+    GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', COALESCE(name, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(qualified_name, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(signature, '')), 'B') ||
+        setweight(to_tsvector('english', COALESCE(docstring, '')), 'C')
+    ) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_nodes_search_vector ON nodes USING GIN (search_vector);

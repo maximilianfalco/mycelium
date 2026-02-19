@@ -45,7 +45,7 @@ func semanticSearch(pool *pgxpool.Pool, oaiClient *openai.Client) http.HandlerFu
 			return
 		}
 
-		results, err := engine.SemanticSearch(r.Context(), pool, oaiClient, req.Query, req.ProjectID, req.Limit, req.Kinds)
+		results, err := engine.HybridSearch(r.Context(), pool, oaiClient, req.Query, req.ProjectID, req.Limit, req.Kinds)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

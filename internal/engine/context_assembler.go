@@ -45,7 +45,7 @@ func AssembleContext(ctx context.Context, pool *pgxpool.Pool, client *openai.Cli
 		maxTokens = 8000
 	}
 
-	semanticResults, err := SemanticSearch(ctx, pool, client, query, projectID, 10, nil)
+	semanticResults, err := HybridSearch(ctx, pool, client, query, projectID, 10, nil)
 	if err != nil {
 		return nil, fmt.Errorf("semantic search: %w", err)
 	}

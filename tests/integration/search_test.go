@@ -204,3 +204,104 @@ func TestSemanticSearch_ResultFields(t *testing.T) {
 		t.Errorf("unexpected signature: %q", r.Signature)
 	}
 }
+
+// --- Hybrid search tests ---
+
+func TestHybridSearch_ExactNameMatch(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	// Use a vector pointing at dimension 1 (queryUsers) but search for "authenticate" by keyword.
+	// Keyword match for "authenticate" should boost it above the vector-only favorite.
+	queryVec := makeUnitVector(1536, 1)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "authenticate", "test-search", 10, nil)
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected results, got 0")
+	}
+
+	// "authenticate" should appear in results thanks to keyword match
+	found := false
+	for _, r := range results {
+		if r.QualifiedName == "authenticate" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'authenticate' in results due to keyword match")
+	}
+}
+
+func TestHybridSearch_KeywordBoost(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	// Vector points equally away from all nodes (dimension 500, unrelated to any).
+	// Keyword "Logger" should make Logger rank first since vector scores are all ~0.
+	queryVec := makeUnitVector(1536, 500)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "Logger", "test-search", 10, nil)
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected results, got 0")
+	}
+
+	if results[0].QualifiedName != "Logger" {
+		t.Errorf("expected 'Logger' as top result (keyword boost), got %q", results[0].QualifiedName)
+	}
+}
+
+func TestHybridSearch_SemanticFallback(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	// Query with nonsense keyword but a vector pointing at "authenticate".
+	// Should still return results via the vector path.
+	queryVec := makeUnitVector(1536, 0)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "xyznonexistent", "test-search", 10, nil)
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected results from vector fallback, got 0")
+	}
+
+	if results[0].QualifiedName != "authenticate" {
+		t.Errorf("expected 'authenticate' from vector similarity, got %q", results[0].QualifiedName)
+	}
+}
+
+func TestHybridSearch_KindFilter(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	queryVec := makeUnitVector(1536, 2)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "Logger", "test-search", 10, []string{"class"})
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (class filter), got %d", len(results))
+	}
+	if results[0].QualifiedName != "Logger" {
+		t.Errorf("expected 'Logger', got %q", results[0].QualifiedName)
+	}
+}
+
+func TestHybridSearch_WrongProject(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "authenticate", "nonexistent", 10, nil)
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for wrong project, got %d", len(results))
+	}
+}
