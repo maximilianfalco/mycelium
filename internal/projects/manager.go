@@ -149,6 +149,47 @@ func RemoveSource(ctx context.Context, pool *pgxpool.Pool, projectID, sourceID s
 	return nil
 }
 
+// DetectProjectByPath finds the project whose source path best matches the given directory.
+// It checks if the given path starts with any project_sources.path (longest match wins).
+func DetectProjectByPath(ctx context.Context, pool *pgxpool.Pool, dirPath string) (*Project, *ProjectSource, error) {
+	// Normalize: strip trailing slash
+	dirPath = strings.TrimRight(dirPath, "/")
+
+	rows, err := pool.Query(ctx,
+		`SELECT ps.id, ps.project_id, ps.path, ps.source_type, ps.is_code, ps.alias,
+		        ps.last_indexed_commit, ps.last_indexed_branch, ps.last_indexed_at, ps.added_at
+		 FROM project_sources ps
+		 ORDER BY LENGTH(ps.path) DESC`,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("querying sources: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var s ProjectSource
+		if err := rows.Scan(&s.ID, &s.ProjectID, &s.Path, &s.SourceType, &s.IsCode, &s.Alias,
+			&s.LastIndexedCommit, &s.LastIndexedBranch, &s.LastIndexedAt, &s.AddedAt); err != nil {
+			return nil, nil, fmt.Errorf("scanning source: %w", err)
+		}
+
+		sourcePath := strings.TrimRight(s.Path, "/")
+		// Exact match or dirPath is a subdirectory of the source
+		if dirPath == sourcePath || strings.HasPrefix(dirPath, sourcePath+"/") {
+			p, err := GetProject(ctx, pool, s.ProjectID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting project: %w", err)
+			}
+			if p == nil {
+				continue
+			}
+			return p, &s, nil
+		}
+	}
+
+	return nil, nil, nil
+}
+
 func ListSources(ctx context.Context, pool *pgxpool.Pool, projectID string) ([]ProjectSource, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, project_id, path, source_type, is_code, alias,

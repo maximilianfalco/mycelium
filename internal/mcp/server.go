@@ -25,6 +25,7 @@ func NewServer(pool *pgxpool.Pool, client *openai.Client) *server.MCPServer {
 	s.AddTool(searchTool(), searchHandler(pool, client))
 	s.AddTool(queryGraphTool(), queryGraphHandler(pool))
 	s.AddTool(listProjectsTool(), listProjectsHandler(pool))
+	s.AddTool(detectProjectTool(), detectProjectHandler(pool))
 
 	return s
 }
@@ -42,7 +43,7 @@ func searchTool() mcp.Tool {
 		),
 		mcp.WithString("project_id",
 			mcp.Required(),
-			mcp.Description("Project/colony ID. Use list_projects to discover available IDs."),
+			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
 		),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of results (1-100, default 10)"),
@@ -64,7 +65,7 @@ func queryGraphTool() mcp.Tool {
 		),
 		mcp.WithString("project_id",
 			mcp.Required(),
-			mcp.Description("Project/colony ID"),
+			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
 		),
 		mcp.WithString("query_type",
 			mcp.Required(),
@@ -82,6 +83,18 @@ func listProjectsTool() mcp.Tool {
 		mcp.WithDescription("List all available projects/colonies. Returns project IDs, names, and descriptions. Use project IDs with the search and query_graph tools."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
+	)
+}
+
+func detectProjectTool() mcp.Tool {
+	return mcp.NewTool("detect_project",
+		mcp.WithDescription("Auto-detect which project/colony a directory belongs to by matching against indexed source paths. Pass the current working directory to get the project ID without needing to call list_projects. Returns the project ID, name, and matched source path."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithString("path",
+			mcp.Required(),
+			mcp.Description("Absolute directory path to match (e.g. your current working directory)"),
+		),
 	)
 }
 
@@ -206,6 +219,36 @@ func listProjectsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			}
 			b.WriteByte('\n')
 		}
+
+		return mcp.NewToolResultText(b.String()), nil
+	}
+}
+
+func detectProjectHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		dirPath, err := req.RequireString("path")
+		if err != nil {
+			return mcp.NewToolResultError("missing required parameter: path"), nil
+		}
+
+		project, source, err := projects.DetectProjectByPath(ctx, pool, dirPath)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("detection failed: %v", err)), nil
+		}
+
+		if project == nil {
+			return mcp.NewToolResultText("No matching project found for this directory. Use list_projects to see available projects, or index this directory first via the mycelium UI."), nil
+		}
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("## Detected project\n\n"))
+		b.WriteString(fmt.Sprintf("- **Project:** %s\n", project.Name))
+		b.WriteString(fmt.Sprintf("- **Project ID:** `%s`\n", project.ID))
+		b.WriteString(fmt.Sprintf("- **Matched source:** %s\n", source.Path))
+		if source.Alias != "" {
+			b.WriteString(fmt.Sprintf("- **Alias:** %s\n", source.Alias))
+		}
+		b.WriteString(fmt.Sprintf("\nUse `%s` as the `project_id` for search and query_graph tools.", project.ID))
 
 		return mcp.NewToolResultText(b.String()), nil
 	}
