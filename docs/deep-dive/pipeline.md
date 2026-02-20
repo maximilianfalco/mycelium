@@ -11,7 +11,7 @@ Each pipeline stage (crawler, parser, resolver, embedder, graph builder) operate
 ### IndexProject
 
 ```go
-func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Client, projectID string, status *IndexStatus) *IndexResult
+func IndexProject(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, oaiClient *openai.Client, projectID string, status *IndexStatus, force bool) *IndexResult
 ```
 
 Runs the full pipeline for a project. Called from the `POST /projects/:id/index` handler in a background goroutine.
@@ -29,9 +29,11 @@ Runs the full pipeline for a project. Called from the `POST /projects/:id/index`
 | 6 | Graph storage | `BuildGraph()` | Upserts workspace/packages/nodes/edges to Postgres. |
 | 7 | Metadata | `updateSourceMetadata()` | Writes `last_indexed_commit`, `last_indexed_branch`, `last_indexed_at`. |
 
+After all sources are processed, a project-level cross-source resolution step runs `ResolveCrossSources()` to resolve imports between workspaces in different sources.
+
 **Returns** `*IndexResult` with aggregate counts across all sources.
 
-**Concurrent indexing guard:** Uses `sync.Map` to prevent two jobs for the same project from running simultaneously. Returns an error in `IndexResult.Errors` if a job is already active.
+**Concurrent indexing guard:** Uses `sync.Map` to prevent two jobs for the same project from running simultaneously. Returns an error in `IndexResult.Errors` if a job is already active. When `force=true`, the guard is bypassed.
 
 ### StatusStore
 
@@ -87,7 +89,7 @@ Parses files in parallel using `errgroup.Group` with `SetLimit(8)`. Each gorouti
 ### embedChangedNodes
 
 ```go
-func embedChangedNodes(ctx, pool, oaiClient, cfg, projectID, sourceID string, allNodes, ws) (map[string][]float32, int, error)
+func embedChangedNodes(ctx, pool, oaiClient, cfg, projectID, sourceID string, allNodes []parsers.NodeInfo, updateStatus func(stage, progress string)) (map[string][]float32, int, error)
 ```
 
 The skip-embed optimization. Loads existing `(qualified_name, body_hash)` and `(qualified_name, embedding)` from the DB for the workspace. For each parsed node:
@@ -160,7 +162,7 @@ The trigger endpoint returns 409 Conflict if a job is already running for the pr
 | Config field | Used by | Default |
 |---|---|---|
 | `MaxAutoReindexFiles` | Change detection threshold | 100 |
-| `MaxEmbeddingBatch` | OpenAI batch size | 2048 |
+| `MaxEmbeddingBatch` | OpenAI batch size | 1000 |
 | `OpenAIAPIKey` | Embedding (nil client if empty) | — |
 
 ## Constants

@@ -9,8 +9,8 @@ Mycelium stores code relationships as a directed graph — nodes are code symbol
 | `callers` | Incoming | `calls` | 1 hop | Functions that call the target |
 | `callees` | Outgoing | `calls` | 1 hop | Functions called by the target |
 | `importers` | Incoming | `imports` | 1 hop | Files that import the target |
-| `dependencies` | Outgoing | All | Up to 5 hops | Transitive dependencies via recursive CTE |
-| `dependents` | Incoming | All | Up to 5 hops | Transitive dependents via recursive CTE |
+| `dependencies` | Outgoing | `calls`, `imports`, `uses_type` | Up to 5 hops | Transitive dependencies via recursive CTE |
+| `dependents` | Incoming | `calls`, `imports`, `uses_type` | Up to 5 hops | Transitive dependents via recursive CTE |
 | `file` | — | `contains` | — | All symbols in the same file |
 
 ## How It Works
@@ -89,7 +89,7 @@ This looks up a node by its qualified name within a project. The MCP `query_grap
 
 | Kind | Weight | Rationale |
 |---|---|---|
-| `contains`, `extends`, `implements` | 1.0 | Structural, always relevant |
+| `contains`, `extends`, `implements`, `embeds` | 1.0 | Structural, always relevant |
 | `imports`, `calls`, `depends_on`, `uses_type` | 0.5 | Less direct relationship |
 
 Higher-weight edges are returned first in query results.
@@ -105,7 +105,9 @@ type NodeResult struct {
     FilePath      string `json:"filePath"`
     Kind          string `json:"kind"`
     Signature     string `json:"signature"`
-    SourceCode    string `json:"sourceCode"`
-    Docstring     string `json:"docstring"`
+    SourceCode    string `json:"sourceCode,omitempty"`
+    Docstring     string `json:"docstring,omitempty"`
+    Depth         int    `json:"depth,omitempty"`
+    SourceAlias   string `json:"sourceAlias,omitempty"`
 }
 ```

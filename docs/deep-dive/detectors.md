@@ -169,5 +169,8 @@ Located at `tests/fixtures/`:
 | `no-package-json` | Empty dir — tests fallback to anonymous standalone |
 | `go-standalone` | Single `go.mod` project with sub-packages |
 | `go-workspace` | `go.work` with 2 modules |
+| `cross-repo-a` | Cross-source import resolution (source A) |
+| `cross-repo-b` | Cross-source import resolution (source B) |
+| `parser` | Parser test fixtures |
 
 Additional in-memory tests cover: JSON comment stripping, negation patterns, Yarn object-form workspaces, single-line `use` in `go.work`, `go.mod` with `require` blocks, mixed repos (Node wins), and `vendor/` exclusion.

@@ -53,7 +53,7 @@ type BuildInput struct {
 }
 ```
 
-Aggregates output from every prior stage. The orchestrator (not yet built) will assemble this struct and pass it to `BuildGraph`.
+Aggregates output from every prior stage. The pipeline orchestrator (`pipeline.go`) assembles this struct and passes it to `BuildGraph`.
 
 ### BuildResult
 

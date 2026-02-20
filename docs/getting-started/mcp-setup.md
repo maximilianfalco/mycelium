@@ -29,7 +29,7 @@ That's it. The `.mcp.json` in the project root is already configured:
 
 Claude Code auto-discovers this file when you open the project directory. The startup script (`scripts/mcp.sh`) automatically starts the Postgres Docker container if it's not already running, then launches the MCP server. No need to run `make dev` or `make db` first.
 
-The tools will appear as `mycelium_search`, `mycelium_query_graph`, and `mycelium_list_projects`.
+The tools will appear as `mycelium_search`, `mycelium_query_graph`, `mycelium_list_projects`, and `mycelium_detect_project`.
 
 ## Tools
 

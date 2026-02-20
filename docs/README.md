@@ -10,7 +10,6 @@
 - [⚙️ Environment Variables](getting-started/environment-variables.md)
 
 ### Architecture
-- [🏗️ Architecture Overview](architecture.svg)
 - [🧠 Design Decisions](deep-dive/design-decisions.md)
 
 ### Deep Dive

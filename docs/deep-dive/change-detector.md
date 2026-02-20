@@ -11,7 +11,7 @@ Re-parsing and re-embedding an entire codebase on every index run is wasteful. T
 ### DetectChanges
 
 ```go
-func DetectChanges(ctx context.Context, sourcePath string, lastIndexedCommit *string, lastIndexedAt *time.Time, maxAutoReindexFiles int) (*ChangeSet, error)
+func DetectChanges(ctx context.Context, sourcePath string, lastIndexedCommit *string, lastIndexedAt *time.Time, maxAutoReindexFiles int, force bool) (*ChangeSet, error)
 ```
 
 Entry point. Detects whether `sourcePath` is a git repo and dispatches to the appropriate strategy.
@@ -21,6 +21,7 @@ Entry point. Detects whether `sourcePath` is a git repo and dispatches to the ap
 - `lastIndexedCommit` — previous commit hash from `project_sources.last_indexed_commit` (nil for first index)
 - `lastIndexedAt` — previous index timestamp from `project_sources.last_indexed_at` (used for mtime fallback)
 - `maxAutoReindexFiles` — threshold for auto-reindex skip (0 disables)
+- `force` — when true, forces a full reindex regardless of change detection
 
 ## Types
 

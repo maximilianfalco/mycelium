@@ -27,7 +27,8 @@ mycelium/
 │   ├── config/config.go         # .env loading, typed Config struct
 │   ├── db/
 │   │   ├── pool.go              # pgxpool connection + health check
-│   │   └── schema.sql           # DDL for all tables (auto-applied by Docker)
+│   │   ├── schema.sql           # DDL for all tables (auto-applied by Docker)
+│   │   └── migrations/          # Incremental schema migrations
 │   ├── projects/
 │   │   ├── models.go            # Project, ProjectSource, ScanResult structs
 │   │   ├── manager.go           # CRUD for projects and sources
@@ -55,7 +56,7 @@ mycelium/
 │   │   └── detectors/           # Workspace detection (Node.js, Go)
 │   ├── engine/
 │   │   ├── chat.go              # Streamed chat with OpenAI + context assembly
-│   │   ├── context_assembler.go # Scores and ranks nodes for LLM context
+│   │   ├── context_assembler.go # Search + graph expansion, ranking, token-budgeted context assembly
 │   │   ├── graph_query.go       # Structural queries (callers, deps, etc.)
 │   │   └── search.go            # Hybrid search (semantic + keyword via RRF)
 │   └── mcp/

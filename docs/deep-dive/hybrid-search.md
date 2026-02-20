@@ -121,8 +121,9 @@ type SearchResult struct {
     Kind          string  `json:"kind"`
     Similarity    float64 `json:"similarity"`     // RRF score for hybrid, cosine for semantic
     Signature     string  `json:"signature"`
-    SourceCode    string  `json:"sourceCode"`
-    Docstring     string  `json:"docstring"`
+    SourceCode    string  `json:"sourceCode,omitempty"`
+    Docstring     string  `json:"docstring,omitempty"`
+    SourceAlias   string  `json:"sourceAlias,omitempty"`
 }
 ```
 

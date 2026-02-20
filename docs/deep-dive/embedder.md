@@ -25,10 +25,10 @@ Returns `nil, nil` for empty input.
 ### EmbedBatched
 
 ```go
-func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, batchSize int) ([][]float32, error)
+func EmbedBatched(ctx context.Context, client *openai.Client, texts []string, batchSize int, onProgress func(pct int)) ([][]float32, error)
 ```
 
-Splits a large set of texts into batches of `batchSize` (defaults to 2048 if <= 0) and embeds each batch sequentially. Logs progress per batch via `slog.Info`.
+Splits a large set of texts into batches of `batchSize` (defaults to 2048 if <= 0) and embeds each batch sequentially. Calls `onProgress` with a percentage after each batch completes.
 
 This is the main entry point for the indexing pipeline — pass all node texts and it handles the batching.
 
@@ -51,7 +51,7 @@ Uses `text-embedding-3-small` (OpenAI constant `openai.SmallEmbedding3`). Produc
 
 ## Retry logic
 
-Retries on transient errors only — up to 5 attempts with exponential backoff and jitter.
+Retries on transient errors only — up to 10 attempts with exponential backoff and jitter.
 
 | Error type | Retryable? |
 |---|---|
@@ -62,21 +62,21 @@ Retries on transient errors only — up to 5 attempts with exponential backoff a
 
 ### Backoff schedule
 
-Base: 500ms, doubles per attempt, capped at 30s. Jitter of +/-25% applied to prevent thundering herd.
+Base: 1s, doubles per attempt, capped at 60s. Jitter of +/-25% applied to prevent thundering herd.
 
 | Attempt | Base backoff | With jitter range |
 |---|---|---|
-| 1 | 500ms | 375ms — 625ms |
-| 2 | 1s | 750ms — 1.25s |
-| 3 | 2s | 1.5s — 2.5s |
-| 4 | 4s | 3s — 5s |
-| 5 | 8s | 6s — 10s |
+| 1 | 1s | 750ms — 1.25s |
+| 2 | 2s | 1.5s — 2.5s |
+| 3 | 4s | 3s — 5s |
+| 4 | 8s | 6s — 10s |
+| 5 | 16s | 12s — 20s |
 
 Context cancellation is respected between retries — if the context is cancelled during a backoff sleep, the function returns immediately with `ctx.Err()`.
 
 ## OpenAI client setup
 
-The OpenAI client is created at server startup in `DebugRoutes(cfg)` using the `OPENAI_API_KEY` from config. If the key is empty, the client is `nil` and embed/compare endpoints return 503 Service Unavailable.
+The OpenAI client is created at server startup (in `cmd/myc/serve.go` or `cmd/myc/mcp.go`) using the `OPENAI_API_KEY` from config. If the key is empty, the client is `nil` and embed/compare endpoints return 503 Service Unavailable.
 
 ## Debug endpoints
 
