@@ -23,9 +23,12 @@ type ContextNode struct {
 	Docstring     string   `json:"docstring,omitempty"`
 	Similarity    float64  `json:"similarity"`
 	Score         float64  `json:"score"`
-	CalledBy      []string `json:"calledBy,omitempty"`
-	Calls         []string `json:"calls,omitempty"`
+	CalledBy   []string `json:"calledBy,omitempty"`
+	Calls      []string `json:"calls,omitempty"`
+	ImportedBy []string `json:"importedBy,omitempty"`
+	Imports    []string `json:"imports,omitempty"`
 	FullSource    bool     `json:"fullSource"`
+	SourceAlias   string   `json:"sourceAlias,omitempty"`
 }
 
 // AssembledContext is the result of combining semantic + structural search
@@ -45,7 +48,10 @@ func AssembleContext(ctx context.Context, pool *pgxpool.Pool, client *openai.Cli
 		maxTokens = 8000
 	}
 
-	semanticResults, err := HybridSearch(ctx, pool, client, query, projectID, 10, nil)
+	nodeCount := getProjectNodeCount(ctx, pool, projectID)
+	searchLimit := dynamicSearchLimit(nodeCount)
+
+	semanticResults, err := HybridSearch(ctx, pool, client, query, projectID, searchLimit, nil)
 	if err != nil {
 		return nil, fmt.Errorf("semantic search: %w", err)
 	}
@@ -86,6 +92,29 @@ func AssembleContextWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec
 	return assembleFromResults(ctx, pool, semanticResults, maxTokens)
 }
 
+func getProjectNodeCount(ctx context.Context, pool *pgxpool.Pool, projectID string) int {
+	var count int
+	pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM nodes n JOIN workspaces w ON n.workspace_id = w.id WHERE w.project_id = $1`,
+		projectID,
+	).Scan(&count)
+	return count
+}
+
+// dynamicSearchLimit scales the number of search results based on colony size.
+func dynamicSearchLimit(nodeCount int) int {
+	switch {
+	case nodeCount >= 15000:
+		return 25
+	case nodeCount >= 5000:
+		return 20
+	case nodeCount >= 1000:
+		return 15
+	default:
+		return 10
+	}
+}
+
 // scoredNode tracks a discovered node with its provenance for ranking.
 type scoredNode struct {
 	nodeID        string
@@ -97,6 +126,7 @@ type scoredNode struct {
 	docstring     string
 	similarity    float64
 	weight        float64
+	sourceAlias   string
 }
 
 // assembleFromResults is the shared core: expands semantic results via graph,
@@ -121,6 +151,7 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 				docstring:     sr.Docstring,
 				similarity:    sr.Similarity,
 				weight:        1.0,
+				sourceAlias:   sr.SourceAlias,
 			}
 		}
 
@@ -134,6 +165,13 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 			for _, n2 := range hop2 {
 				addOrUpdate(seen, n2, sr.Similarity, 0.4)
 			}
+		}
+
+		// Reverse hop: who imports/calls/uses this node? — top 3
+		// Critical for cross-repo questions (e.g., finding consumers of a library)
+		dependents, _ := GetDependents(ctx, pool, sr.NodeID, 1, 3)
+		for _, n := range dependents {
+			addOrUpdate(seen, n, sr.Similarity, 0.6)
 		}
 	}
 
@@ -165,8 +203,10 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 	}
 
 	type annotations struct {
-		calledBy []string
-		calls    []string
+		calledBy   []string
+		calls      []string
+		importedBy []string
+		imports    []string
 	}
 	nodeAnnotations := make(map[string]*annotations)
 
@@ -174,13 +214,21 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 		nodeID := ranked[i].nodeID
 		callers, _ := GetCallers(ctx, pool, nodeID, 3)
 		callees, _ := GetCallees(ctx, pool, nodeID, 3)
+		importers, _ := GetImporters(ctx, pool, nodeID, 3)
+		imported, _ := getRelated(ctx, pool, nodeID, "imports", "outgoing", 3)
 
 		ann := &annotations{}
 		for _, c := range callers {
-			ann.calledBy = append(ann.calledBy, c.QualifiedName)
+			ann.calledBy = append(ann.calledBy, nodeLabel(c))
 		}
 		for _, c := range callees {
-			ann.calls = append(ann.calls, c.QualifiedName)
+			ann.calls = append(ann.calls, nodeLabel(c))
+		}
+		for _, c := range importers {
+			ann.importedBy = append(ann.importedBy, nodeLabel(c))
+		}
+		for _, c := range imported {
+			ann.imports = append(ann.imports, nodeLabel(c))
 		}
 		nodeAnnotations[nodeID] = ann
 	}
@@ -203,11 +251,14 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 			Similarity:    rn.similarity,
 			Score:         rn.score,
 			FullSource:    fullSource,
+			SourceAlias:   rn.sourceAlias,
 		}
 
 		if ann, ok := nodeAnnotations[rn.nodeID]; ok {
 			node.CalledBy = ann.calledBy
 			node.Calls = ann.calls
+			node.ImportedBy = ann.importedBy
+			node.Imports = ann.imports
 		}
 
 		if fullSource {
@@ -257,6 +308,13 @@ func assembleFromResults(ctx context.Context, pool *pgxpool.Pool, semanticResult
 	}, nil
 }
 
+func nodeLabel(n NodeResult) string {
+	if n.SourceAlias != "" {
+		return n.QualifiedName + " [" + n.SourceAlias + "]"
+	}
+	return n.QualifiedName
+}
+
 // addOrUpdate inserts a graph-discovered node into the seen map, or updates
 // it if the new combined score is higher.
 func addOrUpdate(seen map[string]*scoredNode, n NodeResult, similarity, weight float64) {
@@ -277,6 +335,7 @@ func addOrUpdate(seen map[string]*scoredNode, n NodeResult, similarity, weight f
 			docstring:     n.Docstring,
 			similarity:    similarity,
 			weight:        weight,
+			sourceAlias:   n.SourceAlias,
 		}
 	}
 }
@@ -286,12 +345,37 @@ func formatContext(nodes []ContextNode) string {
 		return "No relevant code found."
 	}
 
+	// Group nodes by source alias for clear repo boundaries
+	groups := make(map[string][]ContextNode)
+	var order []string
+	for _, n := range nodes {
+		alias := n.SourceAlias
+		if alias == "" {
+			alias = "(unknown)"
+		}
+		if _, exists := groups[alias]; !exists {
+			order = append(order, alias)
+		}
+		groups[alias] = append(groups[alias], n)
+	}
+
 	var b strings.Builder
 	b.WriteString("## Relevant Code\n\n")
 
-	for _, n := range nodes {
-		b.WriteString(formatNode(n))
-		b.WriteString("\n")
+	if len(order) == 1 && order[0] == "(unknown)" {
+		// Single source or no aliases — flat list (backwards compatible)
+		for _, n := range nodes {
+			b.WriteString(formatNode(n))
+			b.WriteString("\n")
+		}
+	} else {
+		for _, alias := range order {
+			b.WriteString(fmt.Sprintf("## Source: %s\n\n", alias))
+			for _, n := range groups[alias] {
+				b.WriteString(formatNode(n))
+				b.WriteString("\n")
+			}
+		}
 	}
 
 	return b.String()
@@ -300,13 +384,23 @@ func formatContext(nodes []ContextNode) string {
 func formatNode(n ContextNode) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("### %s — %s (similarity: %.2f)\n", n.FilePath, n.QualifiedName, n.Similarity))
+	if n.SourceAlias != "" {
+		b.WriteString(fmt.Sprintf("### %s — %s [source: %s] (similarity: %.2f)\n", n.FilePath, n.QualifiedName, n.SourceAlias, n.Similarity))
+	} else {
+		b.WriteString(fmt.Sprintf("### %s — %s (similarity: %.2f)\n", n.FilePath, n.QualifiedName, n.Similarity))
+	}
 	b.WriteString(fmt.Sprintf("Signature: %s\n", n.Signature))
 
 	if n.Docstring != "" {
 		b.WriteString(fmt.Sprintf("Docstring: %s\n", n.Docstring))
 	}
 
+	if len(n.ImportedBy) > 0 {
+		b.WriteString(fmt.Sprintf("Imported by: %s\n", strings.Join(n.ImportedBy, ", ")))
+	}
+	if len(n.Imports) > 0 {
+		b.WriteString(fmt.Sprintf("Imports: %s\n", strings.Join(n.Imports, ", ")))
+	}
 	if len(n.CalledBy) > 0 {
 		b.WriteString(fmt.Sprintf("Called by: %s\n", strings.Join(n.CalledBy, ", ")))
 	}

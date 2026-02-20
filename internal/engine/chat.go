@@ -11,14 +11,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-const systemPrompt = `You are a code intelligence assistant. You have access to indexed code from the user's repository.
+const systemPrompt = `You are a code intelligence assistant. You have access to indexed code from the user's project, which may span multiple source repositories.
 
-Use the following code context to answer the user's question. When referencing code:
-- Always cite specific file paths and function/class names
-- If the context contains relevant source code, explain how it works
-- If the context doesn't contain enough information to answer, say so honestly
-
-Be concise and direct. Focus on the code, not general programming advice.`
+Use the following code context to answer the user's question. Cite specific file paths, function names, and source repositories. Be concise and direct.`
 
 // Source represents a code reference cited in a chat response.
 type Source struct {

@@ -347,3 +347,196 @@ func TestAssembleContext_SimilarityInOutput(t *testing.T) {
 		t.Error("expected formatted output to contain 'similarity:' in node headers")
 	}
 }
+
+// setupMultiSourceContextTest creates a project with TWO sources (repo-a, repo-b).
+// repo-a has: exportedFunc (dim 0)
+// repo-b has: consumerFunc (dim 1) which calls exportedFunc (cross-source edge)
+func setupMultiSourceContextTest(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
+	ctx, pool := setupGraphTest(t)
+
+	projectID := "test-multi-src"
+	createTestProject(t, ctx, pool, projectID)
+
+	// Create two separate sources with distinct aliases
+	_, err := pool.Exec(ctx,
+		"INSERT INTO project_sources (id, project_id, path, source_type, is_code, alias) VALUES ($1, $2, $3, 'git_repo', true, $4) ON CONFLICT DO NOTHING",
+		"source-a", projectID, "/tmp/repo-a", "repo-a",
+	)
+	if err != nil {
+		t.Fatalf("creating source-a: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		"INSERT INTO project_sources (id, project_id, path, source_type, is_code, alias) VALUES ($1, $2, $3, 'git_repo', true, $4) ON CONFLICT DO NOTHING",
+		"source-b", projectID, "/tmp/repo-b", "repo-b",
+	)
+	if err != nil {
+		t.Fatalf("creating source-b: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM projects WHERE id = $1", projectID)
+	})
+
+	exportedVec := makeUnitVector(1536, 0)
+	consumerVec := makeUnitVector(1536, 1)
+
+	// Build graph for source-a
+	inputA := &indexer.BuildInput{
+		ProjectID:  projectID,
+		SourceID:   "source-a",
+		SourcePath: "/tmp/repo-a",
+		Workspace: &detectors.WorkspaceInfo{
+			WorkspaceType:  "standalone",
+			PackageManager: "npm",
+			Packages: []detectors.PackageInfo{
+				{Name: "repo-a", Path: "src", Version: "1.0.0"},
+			},
+		},
+		Nodes: []parsers.NodeInfo{
+			{
+				Name: "exportedFunc", QualifiedName: "exportedFunc", Kind: "function",
+				Signature: "function exportedFunc(): string",
+				StartLine: 1, EndLine: 3,
+				SourceCode: "function exportedFunc(): string { return 'hello'; }",
+				BodyHash:   "exp-hash",
+			},
+		},
+		Edges: []parsers.EdgeInfo{
+			{Source: "src/index.ts", Target: "exportedFunc", Kind: "contains", Line: 1},
+		},
+		Embeddings: map[string][]float32{
+			"exportedFunc": exportedVec,
+		},
+		FilePaths: []string{"src/index.ts"},
+	}
+	_, err = indexer.BuildGraph(ctx, pool, inputA)
+	if err != nil {
+		t.Fatalf("BuildGraph source-a: %v", err)
+	}
+
+	// Build graph for source-b
+	inputB := &indexer.BuildInput{
+		ProjectID:  projectID,
+		SourceID:   "source-b",
+		SourcePath: "/tmp/repo-b",
+		Workspace: &detectors.WorkspaceInfo{
+			WorkspaceType:  "standalone",
+			PackageManager: "npm",
+			Packages: []detectors.PackageInfo{
+				{Name: "repo-b", Path: "src", Version: "1.0.0"},
+			},
+		},
+		Nodes: []parsers.NodeInfo{
+			{
+				Name: "consumerFunc", QualifiedName: "consumerFunc", Kind: "function",
+				Signature: "function consumerFunc(): void",
+				StartLine: 1, EndLine: 5,
+				SourceCode: "function consumerFunc(): void { exportedFunc(); }",
+				BodyHash:   "con-hash",
+			},
+		},
+		Edges: []parsers.EdgeInfo{
+			{Source: "src/main.ts", Target: "consumerFunc", Kind: "contains", Line: 1},
+		},
+		Embeddings: map[string][]float32{
+			"consumerFunc": consumerVec,
+		},
+		FilePaths: []string{"src/main.ts"},
+	}
+	_, err = indexer.BuildGraph(ctx, pool, inputB)
+	if err != nil {
+		t.Fatalf("BuildGraph source-b: %v", err)
+	}
+
+	// Manually insert a cross-source "calls" edge: consumerFunc -> exportedFunc
+	var consumerID, exportedID string
+	pool.QueryRow(ctx, "SELECT id FROM nodes WHERE qualified_name = 'consumerFunc'").Scan(&consumerID)
+	pool.QueryRow(ctx, "SELECT id FROM nodes WHERE qualified_name = 'exportedFunc'").Scan(&exportedID)
+
+	if consumerID == "" || exportedID == "" {
+		t.Fatal("could not find consumerFunc or exportedFunc node IDs")
+	}
+
+	_, err = pool.Exec(ctx,
+		"INSERT INTO edges (source_id, target_id, kind, weight) VALUES ($1, $2, 'calls', 1.0) ON CONFLICT DO NOTHING",
+		consumerID, exportedID,
+	)
+	if err != nil {
+		t.Fatalf("inserting cross-source edge: %v", err)
+	}
+
+	return ctx, pool
+}
+
+func TestAssembleContext_SourceAlias(t *testing.T) {
+	ctx, pool := setupMultiSourceContextTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	result, err := engine.AssembleContextWithVector(ctx, pool, queryVec, "test-multi-src", 8000)
+	if err != nil {
+		t.Fatalf("AssembleContextWithVector: %v", err)
+	}
+
+	if len(result.Nodes) == 0 {
+		t.Fatal("expected at least one node")
+	}
+
+	foundAlias := false
+	for _, n := range result.Nodes {
+		if n.SourceAlias != "" {
+			foundAlias = true
+			break
+		}
+	}
+	if !foundAlias {
+		t.Error("expected at least one node to have a non-empty SourceAlias")
+	}
+}
+
+func TestAssembleContext_BidirectionalExpansion(t *testing.T) {
+	ctx, pool := setupMultiSourceContextTest(t)
+
+	// Query for exportedFunc (dim 0) — should find consumerFunc via reverse edge
+	queryVec := makeUnitVector(1536, 0)
+	result, err := engine.AssembleContextWithVector(ctx, pool, queryVec, "test-multi-src", 8000)
+	if err != nil {
+		t.Fatalf("AssembleContextWithVector: %v", err)
+	}
+
+	names := make(map[string]bool)
+	for _, n := range result.Nodes {
+		names[n.QualifiedName] = true
+	}
+
+	if !names["consumerFunc"] {
+		t.Error("expected bidirectional expansion to include 'consumerFunc' (dependent of exportedFunc)")
+	}
+}
+
+func TestAssembleContext_SourceGrouping(t *testing.T) {
+	ctx, pool := setupMultiSourceContextTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	result, err := engine.AssembleContextWithVector(ctx, pool, queryVec, "test-multi-src", 8000)
+	if err != nil {
+		t.Fatalf("AssembleContextWithVector: %v", err)
+	}
+
+	if !strings.Contains(result.Text, "## Source: repo-a") {
+		t.Error("expected formatted context to contain '## Source: repo-a' section header")
+	}
+}
+
+func TestAssembleContext_SourceLabelInNodeHeader(t *testing.T) {
+	ctx, pool := setupMultiSourceContextTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	result, err := engine.AssembleContextWithVector(ctx, pool, queryVec, "test-multi-src", 8000)
+	if err != nil {
+		t.Fatalf("AssembleContextWithVector: %v", err)
+	}
+
+	if !strings.Contains(result.Text, "[source: repo-a]") {
+		t.Error("expected node header to contain '[source: repo-a]'")
+	}
+}
