@@ -1,6 +1,25 @@
 # Prerequisites
 
-## Required
+## Docker Setup (recommended)
+
+### Docker
+
+The only requirement for running Mycelium. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or via your package manager.
+
+```bash
+docker --version
+docker compose version
+```
+
+### OpenAI API Key
+
+Required for code embeddings and chat. Get one at [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+
+The embedding model (`text-embedding-3-small`) costs ~$0.02 per 1M tokens. A typical 10K-node codebase costs about $0.05 to index.
+
+## Local Development Setup
+
+These are only needed if you're developing Mycelium itself and want hot reload via `make dev`.
 
 ### Go 1.22+
 
@@ -18,23 +37,6 @@ Install via [nvm](https://github.com/nvm-sh/nvm) (recommended) or [nodejs.org](h
 node --version  # should output v22.x.x or higher
 ```
 
-### Docker
-
-Required for running Postgres + pgvector. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or via your package manager.
-
-```bash
-docker --version
-docker compose version
-```
-
-### OpenAI API Key
-
-Required for code embeddings and chat. Get one at [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
-
-The embedding model (`text-embedding-3-small`) costs ~$0.02 per 1M tokens. A typical 10K-node codebase costs about $0.05 to index.
-
-## Optional
-
 ### Air (Go hot reload)
 
 Installed automatically by `make dev`, but you can install it manually:
@@ -43,9 +45,11 @@ Installed automatically by `make dev`, but you can install it manually:
 go install github.com/air-verse/air@latest
 ```
 
+## Included in Docker Compose
+
 ### pgAdmin
 
-Included in the Docker Compose stack. Available at [localhost:5050](http://localhost:5050) with credentials:
+Available at [localhost:5050](http://localhost:5050) with credentials:
 - Email: `admin@mycelium.dev`
 - Password: `admin`
 

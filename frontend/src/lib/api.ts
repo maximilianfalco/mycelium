@@ -1,4 +1,9 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Server-side (SSR) uses INTERNAL_API_URL to reach the API inside Docker network.
+// Client-side (browser) uses NEXT_PUBLIC_API_URL which resolves via host port mapping.
+const API_BASE =
+  typeof window === "undefined"
+    ? process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

@@ -10,6 +10,48 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./internal/db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mycelium"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://mycelium:mycelium@db:5432/mycelium
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      CHAT_MODEL: ${CHAT_MODEL:-gpt-4o}
+      MAX_EMBEDDING_BATCH: ${MAX_EMBEDDING_BATCH:-1000}
+      MAX_CONTEXT_TOKENS: ${MAX_CONTEXT_TOKENS:-8000}
+      MAX_AUTO_REINDEX_FILES: ${MAX_AUTO_REINDEX_FILES:-100}
+      SERVER_PORT: "8080"
+    volumes:
+      - ${REPOS_PATH}:${REPOS_PATH}:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3773:3773"
+    environment:
+      INTERNAL_API_URL: http://api:8080
+    depends_on:
+      - api
+    restart: unless-stopped
 
   pgadmin:
     image: dpage/pgadmin4
@@ -24,6 +66,7 @@ services:
       - db
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
 
 volumes:
   pgdata:

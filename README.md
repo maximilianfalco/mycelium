@@ -52,17 +52,22 @@ Mycelium parses your local repos, builds a structural graph of every function, c
 
 ## ⚡ Quick Start
 
-**Prerequisites:** Go 1.22+, Node.js 22+, Docker ([full list](docs/getting-started/prerequisites.md))
+**Prerequisites:** Docker ([full list](docs/getting-started/prerequisites.md))
 
 ```bash
 # 1. Clone and configure
 git clone https://github.com/maximilianfalco/mycelium.git
 cd mycelium
-echo "OPENAI_API_KEY=sk-..." > .env
+cat > .env <<EOF
+OPENAI_API_KEY=sk-...
+REPOS_PATH=/path/to/your/code
+EOF
 
-# 2. Start everything (Postgres + Go API + Next.js frontend)
-make dev
+# 2. Start everything (runs in background — no terminal needed)
+make docker-up
 ```
+
+> **`REPOS_PATH`** is the root directory containing the repos you want to index (e.g., `~/Desktop/Code`). It's bind-mounted into the API container so the indexer can read your source files.
 
 This starts:
 
@@ -72,6 +77,8 @@ This starts:
 | Go API | [localhost:8080](http://localhost:8080) |
 | Postgres | localhost:5433 |
 | pgAdmin | [localhost:5050](http://localhost:5050) |
+
+All services run in the background. Use `make docker-logs` to tail output, `make docker-down` to stop.
 
 <details>
 <summary><strong>🔌 MCP server setup (for Claude Code, Cursor, etc.)</strong></summary>
@@ -103,7 +110,15 @@ Available tools: `search`, `query_graph`, `list_projects`
 <summary><strong>📋 All make commands</strong></summary>
 
 ```bash
-make dev        # start full stack (Postgres + API + frontend) with hot reload
+# Docker (recommended — runs in background)
+make docker-up      # build and start all services
+make docker-down    # stop all services
+make docker-logs    # tail logs from all services
+make docker-build   # build images without starting
+make docker-rebuild # full rebuild from scratch
+
+# Local development (requires Go 1.22+, Node.js 22+)
+make dev        # start full stack with hot reload (requires open terminal)
 make build      # compile Go binary
 make test       # run all tests (unit + integration)
 make lint       # go vet

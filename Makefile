@@ -1,4 +1,5 @@
-.PHONY: build test lint run generate clean dev dev-stop db db-stop api frontend
+.PHONY: build test lint run generate clean dev dev-stop db db-stop api frontend \
+       docker-build docker-up docker-down docker-logs docker-rebuild
 
 BINARY=myc
 AIR=$(shell go env GOPATH)/bin/air
@@ -48,3 +49,29 @@ dev: db
 		$(AIR) & \
 		cd frontend && npm run dev & \
 		wait
+
+# --- Docker (full stack, backgrounded) ---
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+	@echo ""
+	@echo "mycelium is running:"
+	@echo "  frontend: http://localhost:3773"
+	@echo "  api:      http://localhost:8080"
+	@echo "  pgadmin:  http://localhost:5050"
+	@echo ""
+	@echo "use 'make docker-logs' to tail logs"
+	@echo "use 'make docker-down' to stop"
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f
+
+docker-rebuild: docker-down
+	docker compose build --no-cache
+	docker compose up -d

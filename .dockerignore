@@ -1,0 +1,28 @@
+.git
+.gitignore
+.env
+.DS_Store
+
+# Build artifacts
+myc
+tmp/
+*.out
+*.test
+
+# Frontend build artifacts (rebuilt inside container)
+frontend/.next/
+frontend/node_modules/
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose.yml
+
+# Docs
+docs/
+*.md
+
+# Editor / OS
+.idea/
+.vscode/
+.claude/

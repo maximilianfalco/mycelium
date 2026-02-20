@@ -7,6 +7,9 @@ All configuration is loaded from a `.env` file in the project root (or from actu
 | Variable | Description | Example |
 |---|---|---|
 | `OPENAI_API_KEY` | OpenAI API key for embeddings and chat | `sk-proj-...` |
+| `REPOS_PATH` | Root directory containing repos to index (Docker only) | `/Users/you/Desktop/Code` |
+
+> **`REPOS_PATH`** is bind-mounted into the API container at the same absolute path, so the indexer can read your source files. Only needed when running via Docker (`make docker-up`).
 
 ## 🔧 Optional
 
@@ -24,10 +27,11 @@ All configuration is loaded from a `.env` file in the project root (or from actu
 
 ```bash
 OPENAI_API_KEY=sk-proj-abc123...
+REPOS_PATH=/Users/you/Desktop/Code
 DATABASE_URL=postgresql://mycelium:mycelium@localhost:5433/mycelium
 ```
 
-> **Note:** The database URL default works out of the box with `docker compose up`. Only override it if you're running Postgres on a custom host/port.
+> **Note:** `DATABASE_URL` defaults to `localhost:5433` for local development (`make dev`). When running via Docker (`make docker-up`), the compose file overrides it to use the internal Docker network (`db:5432`) — you don't need to change it.
 
 ## Behavior Without an API Key
 
