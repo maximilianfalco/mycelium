@@ -531,7 +531,7 @@ func nodeFilePath(node parsers.NodeInfo, edges []parsers.EdgeInfo) string {
 // findPackageID maps a file path to its containing package.
 func findPackageID(filePath string, ws *detectors.WorkspaceInfo, packageIDs map[string]string) string {
 	for _, pkg := range ws.Packages {
-		if strings.HasPrefix(filePath, pkg.Path) {
+		if pkg.Path == "." || pkg.Path == "" || strings.HasPrefix(filePath, pkg.Path) {
 			if id, ok := packageIDs[pkg.Name]; ok {
 				return id
 			}
