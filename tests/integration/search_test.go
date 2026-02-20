@@ -305,3 +305,46 @@ func TestHybridSearch_WrongProject(t *testing.T) {
 		t.Errorf("expected 0 results for wrong project, got %d", len(results))
 	}
 }
+
+func TestSemanticSearch_SourceAlias(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	results, err := engine.SemanticSearchWithVector(ctx, pool, queryVec, "test-search", 10, nil)
+	if err != nil {
+		t.Fatalf("SemanticSearchWithVector: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+
+	if results[0].SourceAlias != "test-source" {
+		t.Errorf("expected SourceAlias 'test-source', got %q", results[0].SourceAlias)
+	}
+}
+
+func TestHybridSearch_SourceAlias(t *testing.T) {
+	ctx, pool := setupSearchTest(t)
+
+	queryVec := makeUnitVector(1536, 0)
+	results, err := engine.HybridSearchWithVector(ctx, pool, queryVec, "authenticate", "test-search", 10, nil)
+	if err != nil {
+		t.Fatalf("HybridSearchWithVector: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+
+	foundAlias := false
+	for _, r := range results {
+		if r.SourceAlias == "test-source" {
+			foundAlias = true
+			break
+		}
+	}
+	if !foundAlias {
+		t.Error("expected at least one result to have SourceAlias 'test-source'")
+	}
+}

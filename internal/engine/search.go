@@ -21,6 +21,7 @@ type SearchResult struct {
 	Signature     string  `json:"signature"`
 	SourceCode    string  `json:"sourceCode,omitempty"`
 	Docstring     string  `json:"docstring,omitempty"`
+	SourceAlias   string  `json:"sourceAlias,omitempty"`
 }
 
 // SemanticSearch embeds the query text via OpenAI, then runs a pgvector cosine
@@ -56,9 +57,11 @@ func SemanticSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec 
 			1 - (n.embedding <=> $1) AS similarity,
 			COALESCE(n.signature, ''),
 			COALESCE(n.source_code, ''),
-			COALESCE(n.docstring, '')
+			COALESCE(n.docstring, ''),
+			COALESCE(ps.alias, '')
 		FROM nodes n
 		JOIN workspaces ws ON n.workspace_id = ws.id
+		LEFT JOIN project_sources ps ON ws.source_id = ps.id
 		WHERE ws.project_id = $2
 		  AND n.embedding IS NOT NULL`
 
@@ -95,7 +98,7 @@ func SemanticSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec 
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode, &r.Docstring); err != nil {
+		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode, &r.Docstring, &r.SourceAlias); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		results = append(results, r)
@@ -206,9 +209,12 @@ func HybridSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec []
 			f.rrf_score,
 			COALESCE(n.signature, ''),
 			COALESCE(n.source_code, ''),
-			COALESCE(n.docstring, '')
+			COALESCE(n.docstring, ''),
+			COALESCE(ps.alias, '')
 		FROM fused f
 		JOIN nodes n ON f.id = n.id
+		JOIN workspaces ws ON n.workspace_id = ws.id
+		LEFT JOIN project_sources ps ON ws.source_id = ps.id
 		ORDER BY f.rrf_score DESC`, argIdx, argIdx+1)
 	args = append(args, candidateLimit, limit)
 
@@ -231,7 +237,7 @@ func HybridSearchWithVector(ctx context.Context, pool *pgxpool.Pool, queryVec []
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode, &r.Docstring); err != nil {
+		if err := rows.Scan(&r.NodeID, &r.QualifiedName, &r.FilePath, &r.Kind, &r.Similarity, &r.Signature, &r.SourceCode, &r.Docstring, &r.SourceAlias); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		results = append(results, r)

@@ -265,6 +265,9 @@ func formatSearchResults(results []engine.SearchResult) string {
 	for i, r := range results {
 		b.WriteString(fmt.Sprintf("### `%s` (%s) — %.2f similarity\n", r.QualifiedName, r.Kind, r.Similarity))
 		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
+		if r.SourceAlias != "" {
+			b.WriteString(fmt.Sprintf("**Source:** %s\n", r.SourceAlias))
+		}
 		if r.Signature != "" {
 			b.WriteString(fmt.Sprintf("**Signature:** `%s`\n", r.Signature))
 		}
@@ -288,6 +291,9 @@ func formatNodeResults(results []engine.NodeResult, queryType string) string {
 	for i, r := range results {
 		b.WriteString(fmt.Sprintf("### `%s` (%s)\n", r.QualifiedName, r.Kind))
 		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
+		if r.SourceAlias != "" {
+			b.WriteString(fmt.Sprintf("**Source:** %s\n", r.SourceAlias))
+		}
 		if r.Signature != "" {
 			b.WriteString(fmt.Sprintf("**Signature:** `%s`\n", r.Signature))
 		}
