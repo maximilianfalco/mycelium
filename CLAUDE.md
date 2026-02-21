@@ -60,7 +60,7 @@ mycelium/
 │   │   ├── graph_query.go       # Structural queries (callers, deps, etc.)
 │   │   └── search.go            # Hybrid search (semantic + keyword via RRF)
 │   └── mcp/
-│       └── server.go            # MCP server (search, query_graph, list/detect projects)
+│       └── server.go            # MCP server (explore, list/detect projects)
 ├── frontend/
 │   └── src/
 │       ├── app/
@@ -134,7 +134,7 @@ All endpoints are fully implemented (no stubs or mocks remain).
 | Indexing | Real (7-stage pipeline, background jobs, status polling) |
 | Search | Real (semantic via pgvector, structural via graph queries) |
 | Chat | Real (streamed via OpenAI, context assembly from graph + embeddings) |
-| MCP | Real (stdio transport, 4 tools: search, query_graph, list_projects, detect_project) |
+| MCP | Real (stdio transport, 3 tools: explore, list_projects, detect_project) |
 
 ## Git
 
@@ -169,4 +169,4 @@ The "spore lab" tab in the project detail view runs individual indexing pipeline
 
 ## Mycelium MCP
 
-This project is indexed by its own MCP server (project ID: `initial-test-colony`). Use the Mycelium MCP tools for **exploration** — discovering callers/callees (`query_graph`), finding code you don't know the location of (`search`), and understanding relationships across the codebase. For targeted questions where you already know the file paths, prefer direct file reads instead — they're faster and less noisy. Use `detect_project` with the cwd to resolve the project ID if needed.
+This project is indexed by its own MCP server (project ID: `initial-test-colony`). Use `explore` for code questions — it does hybrid search + graph expansion in one call, and accepts multiple queries via the `queries` array param to batch questions. All tools accept a `path` param for auto-detection so you don't need to call `detect_project` first. For targeted questions where you already know the file paths, prefer direct file reads instead — they're faster and less noisy.

@@ -22,8 +22,7 @@ func NewServer(pool *pgxpool.Pool, client *openai.Client) *server.MCPServer {
 		server.WithToolCapabilities(false),
 	)
 
-	s.AddTool(searchTool(), searchHandler(pool, client))
-	s.AddTool(queryGraphTool(), queryGraphHandler(pool))
+	s.AddTool(exploreTool(), exploreHandler(pool, client))
 	s.AddTool(listProjectsTool(), listProjectsHandler(pool))
 	s.AddTool(detectProjectTool(), detectProjectHandler(pool))
 
@@ -32,55 +31,9 @@ func NewServer(pool *pgxpool.Pool, client *openai.Client) *server.MCPServer {
 
 // --- Tool definitions ---
 
-func searchTool() mcp.Tool {
-	return mcp.NewTool("search",
-		mcp.WithDescription("Hybrid search (keyword + semantic via RRF) across indexed code in a project. Returns matching symbols with file paths, signatures, and docstrings. Top results include full source code."),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
-		mcp.WithString("query",
-			mcp.Required(),
-			mcp.Description("Natural language search query (e.g. 'authentication middleware', 'database connection pool')"),
-		),
-		mcp.WithString("project_id",
-			mcp.Required(),
-			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results (1-100, default 5). Top 3 results include full source code; the rest show signatures only."),
-		),
-		mcp.WithString("kinds",
-			mcp.Description("Comma-separated node kinds to filter (e.g. 'function,class,interface')"),
-		),
-	)
-}
-
-func queryGraphTool() mcp.Tool {
-	return mcp.NewTool("query_graph",
-		mcp.WithDescription("Query the structural code graph to find callers, callees, importers, dependencies, or dependents of a symbol. First finds the symbol by qualified name, then traverses the graph."),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
-		mcp.WithString("qualified_name",
-			mcp.Required(),
-			mcp.Description("Qualified name of the symbol to query (e.g. 'MyClass.myMethod', 'handleRequest'). Use 'search' first to discover qualified names."),
-		),
-		mcp.WithString("project_id",
-			mcp.Required(),
-			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
-		),
-		mcp.WithString("query_type",
-			mcp.Required(),
-			mcp.Description("Type of graph query to perform"),
-			mcp.Enum("callers", "callees", "importers", "dependencies", "dependents", "file"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results (1-100, default 10). Top 3 results include full source code; the rest show signatures only."),
-		),
-	)
-}
-
 func listProjectsTool() mcp.Tool {
 	return mcp.NewTool("list_projects",
-		mcp.WithDescription("List all available projects/colonies. Returns project IDs, names, and descriptions. Use project IDs with the search and query_graph tools."),
+		mcp.WithDescription("List all available projects with IDs, names, and descriptions."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -88,116 +41,62 @@ func listProjectsTool() mcp.Tool {
 
 func detectProjectTool() mcp.Tool {
 	return mcp.NewTool("detect_project",
-		mcp.WithDescription("Auto-detect which project/colony a directory belongs to by matching against indexed source paths. Pass the current working directory to get the project ID without needing to call list_projects. Returns the project ID, name, and matched source path."),
+		mcp.WithDescription("Auto-detect which project a directory belongs to. Usually not needed — explore accepts a 'path' param directly."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("path",
 			mcp.Required(),
-			mcp.Description("Absolute directory path to match (e.g. your current working directory)"),
+			mcp.Description("Absolute directory path to match (e.g. your cwd)"),
 		),
 	)
 }
 
+func exploreTool() mcp.Tool {
+	return mcp.NewTool("explore",
+		mcp.WithDescription("Hybrid search (keyword + semantic via RRF) across indexed code in a project. Returns matching symbols with file paths, signatures, and docstrings. Top results include full source code."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithString("query",
+			mcp.Description("Natural language search query (e.g. 'authentication middleware', 'database connection pool')"),
+		),
+		mcp.WithArray("queries",
+			mcp.Description("Multiple search queries to run in a single call. Use this to batch questions and minimize round-trips."),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("project_id",
+			mcp.Description("Project/colony ID. Use detect_project with your cwd to auto-detect, or list_projects to discover available IDs."),
+		),
+		mcp.WithString("path",
+			mcp.Description("Absolute directory path for auto-detecting the project (e.g. your cwd)."),
+		),
+		mcp.WithNumber("max_tokens",
+			mcp.Description("Token budget for the response (default 8000)."),
+		),
+	)
+}
+
+// --- Shared helpers ---
+
+// resolveProjectID extracts the project ID from the request, trying project_id
+// first and falling back to path-based auto-detection.
+func resolveProjectID(ctx context.Context, pool *pgxpool.Pool, req mcp.CallToolRequest) (string, error) {
+	if pid := req.GetString("project_id", ""); pid != "" {
+		return pid, nil
+	}
+	if p := req.GetString("path", ""); p != "" {
+		project, _, err := projects.DetectProjectByPath(ctx, pool, p)
+		if err != nil {
+			return "", fmt.Errorf("auto-detect failed: %w", err)
+		}
+		if project == nil {
+			return "", fmt.Errorf("no project found for path %q — use list_projects to find the ID", p)
+		}
+		return project.ID, nil
+	}
+	return "", fmt.Errorf("provide either project_id or path for auto-detection")
+}
+
 // --- Tool handlers ---
-
-func searchHandler(pool *pgxpool.Pool, client *openai.Client) server.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query, err := req.RequireString("query")
-		if err != nil {
-			return mcp.NewToolResultError("missing required parameter: query"), nil
-		}
-		projectID, err := req.RequireString("project_id")
-		if err != nil {
-			return mcp.NewToolResultError("missing required parameter: project_id"), nil
-		}
-
-		limit := req.GetInt("limit", 5)
-
-		var kinds []string
-		if k := req.GetString("kinds", ""); k != "" {
-			kinds = strings.Split(k, ",")
-			for i := range kinds {
-				kinds[i] = strings.TrimSpace(kinds[i])
-			}
-		}
-
-		results, err := engine.HybridSearch(ctx, pool, client, query, projectID, limit, kinds)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
-		}
-
-		if len(results) == 0 {
-			return mcp.NewToolResultText("No results found."), nil
-		}
-
-		return mcp.NewToolResultText(formatSearchResults(results)), nil
-	}
-}
-
-func queryGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		qualifiedName, err := req.RequireString("qualified_name")
-		if err != nil {
-			return mcp.NewToolResultError("missing required parameter: qualified_name"), nil
-		}
-		projectID, err := req.RequireString("project_id")
-		if err != nil {
-			return mcp.NewToolResultError("missing required parameter: project_id"), nil
-		}
-		queryType, err := req.RequireString("query_type")
-		if err != nil {
-			return mcp.NewToolResultError("missing required parameter: query_type"), nil
-		}
-
-		limit := req.GetInt("limit", 10)
-
-		// For "file" queries, qualifiedName is actually a file path
-		if queryType == "file" {
-			results, err := engine.GetFileContext(ctx, pool, qualifiedName, projectID)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("file query failed: %v", err)), nil
-			}
-			if len(results) == 0 {
-				return mcp.NewToolResultText("No symbols found in this file."), nil
-			}
-			return mcp.NewToolResultText(formatNodeResults(results, "file")), nil
-		}
-
-		// Look up the node first
-		node, err := engine.FindNodeByQualifiedName(ctx, pool, projectID, qualifiedName)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("lookup failed: %v", err)), nil
-		}
-		if node == nil {
-			return mcp.NewToolResultError(fmt.Sprintf("symbol %q not found in project %q", qualifiedName, projectID)), nil
-		}
-
-		var results []engine.NodeResult
-		switch queryType {
-		case "callers":
-			results, err = engine.GetCallers(ctx, pool, node.NodeID, limit)
-		case "callees":
-			results, err = engine.GetCallees(ctx, pool, node.NodeID, limit)
-		case "importers":
-			results, err = engine.GetImporters(ctx, pool, node.NodeID, limit)
-		case "dependencies":
-			results, err = engine.GetDependencies(ctx, pool, node.NodeID, 5, limit)
-		case "dependents":
-			results, err = engine.GetDependents(ctx, pool, node.NodeID, 5, limit)
-		default:
-			return mcp.NewToolResultError(fmt.Sprintf("unknown query_type: %q", queryType)), nil
-		}
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("graph query failed: %v", err)), nil
-		}
-
-		if len(results) == 0 {
-			return mcp.NewToolResultText(fmt.Sprintf("No %s found for %q.", queryType, qualifiedName)), nil
-		}
-
-		return mcp.NewToolResultText(formatNodeResults(results, queryType)), nil
-	}
-}
 
 func listProjectsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -248,80 +147,61 @@ func detectProjectHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		if source.Alias != "" {
 			b.WriteString(fmt.Sprintf("- **Alias:** %s\n", source.Alias))
 		}
-		b.WriteString(fmt.Sprintf("\nUse `%s` as the `project_id` for search and query_graph tools.", project.ID))
+		b.WriteString(fmt.Sprintf("\nUse `%s` as the `project_id` for the explore tool.", project.ID))
 
 		return mcp.NewToolResultText(b.String()), nil
 	}
 }
 
-// --- Formatters ---
+func exploreHandler(pool *pgxpool.Pool, client *openai.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Accept either "query" (single) or "queries" (batch)
+		var queries []string
+		if q := req.GetString("query", ""); q != "" {
+			queries = append(queries, q)
+		}
+		if qs := req.GetStringSlice("queries", nil); len(qs) > 0 {
+			queries = append(queries, qs...)
+		}
+		if len(queries) == 0 {
+			return mcp.NewToolResultError("provide either 'query' (string) or 'queries' (array of strings)"), nil
+		}
 
-const fullSourceLimit = 3
+		projectID, err := resolveProjectID(ctx, pool, req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-func formatSearchResults(results []engine.SearchResult) string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("## %d result(s)\n\n", len(results)))
+		maxTokens := req.GetInt("max_tokens", 8000)
 
-	for i, r := range results {
-		b.WriteString(fmt.Sprintf("### `%s` (%s) — %.2f similarity\n", r.QualifiedName, r.Kind, r.Similarity))
-		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
-		if r.SourceAlias != "" {
-			b.WriteString(fmt.Sprintf("**Source:** %s\n", r.SourceAlias))
+		// Single query — simple path
+		if len(queries) == 1 {
+			assembled, err := engine.AssembleContext(ctx, pool, client, queries[0], projectID, maxTokens)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("explore failed: %v", err)), nil
+			}
+			return mcp.NewToolResultText(assembled.Text), nil
 		}
-		if r.Signature != "" {
-			b.WriteString(fmt.Sprintf("**Signature:** `%s`\n", r.Signature))
-		}
-		if r.Docstring != "" {
-			b.WriteString(fmt.Sprintf("**Docstring:** %s\n", r.Docstring))
-		}
-		if i < fullSourceLimit && r.SourceCode != "" {
-			lang := langFromPath(r.FilePath)
-			b.WriteString(fmt.Sprintf("\n```%s\n%s\n```\n", lang, r.SourceCode))
-		}
-		b.WriteByte('\n')
-	}
 
-	return b.String()
-}
+		// Multiple queries — run each, concatenate results with headers
+		perQueryBudget := maxTokens / len(queries)
+		if perQueryBudget < 2000 {
+			perQueryBudget = 2000
+		}
 
-func formatNodeResults(results []engine.NodeResult, queryType string) string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("## %d %s result(s)\n\n", len(results), queryType))
+		var b strings.Builder
+		for i, q := range queries {
+			assembled, err := engine.AssembleContext(ctx, pool, client, q, projectID, perQueryBudget)
+			if err != nil {
+				b.WriteString(fmt.Sprintf("## Query %d: %s\n\nError: %v\n\n", i+1, q, err))
+				continue
+			}
+			b.WriteString(fmt.Sprintf("## Query %d: %s\n\n", i+1, q))
+			b.WriteString(assembled.Text)
+			b.WriteString("\n\n---\n\n")
+		}
 
-	for i, r := range results {
-		b.WriteString(fmt.Sprintf("### `%s` (%s)\n", r.QualifiedName, r.Kind))
-		b.WriteString(fmt.Sprintf("**File:** %s\n", r.FilePath))
-		if r.SourceAlias != "" {
-			b.WriteString(fmt.Sprintf("**Source:** %s\n", r.SourceAlias))
-		}
-		if r.Signature != "" {
-			b.WriteString(fmt.Sprintf("**Signature:** `%s`\n", r.Signature))
-		}
-		if r.Docstring != "" {
-			b.WriteString(fmt.Sprintf("**Docstring:** %s\n", r.Docstring))
-		}
-		if r.Depth > 0 {
-			b.WriteString(fmt.Sprintf("**Depth:** %d\n", r.Depth))
-		}
-		if i < fullSourceLimit && r.SourceCode != "" {
-			lang := langFromPath(r.FilePath)
-			b.WriteString(fmt.Sprintf("\n```%s\n%s\n```\n", lang, r.SourceCode))
-		}
-		b.WriteByte('\n')
-	}
-
-	return b.String()
-}
-
-func langFromPath(filePath string) string {
-	switch {
-	case strings.HasSuffix(filePath, ".ts"), strings.HasSuffix(filePath, ".tsx"):
-		return "typescript"
-	case strings.HasSuffix(filePath, ".js"), strings.HasSuffix(filePath, ".jsx"):
-		return "javascript"
-	case strings.HasSuffix(filePath, ".go"):
-		return "go"
-	default:
-		return ""
+		return mcp.NewToolResultText(b.String()), nil
 	}
 }
+
