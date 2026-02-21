@@ -9,7 +9,7 @@ Claude Code has two ways to read your codebase:
 | Mode | How it works | Best for |
 |---|---|---|
 | **File reads** (Grep, Read, Glob) | Text search + direct file access | Known files, exact symbol names, quick lookups |
-| **Mycelium MCP** (search, query_graph) | Semantic embeddings + structural graph DB | Discovery, relationships, "who calls X?", conceptual queries |
+| **Mycelium MCP** (explore) | Semantic embeddings + structural graph DB | Discovery, relationships, "who calls X?", conceptual queries |
 
 They're complementary — not competing. The best results come from knowing when to reach for each one.
 
@@ -24,30 +24,31 @@ They're complementary — not competing. The best results come from knowing when
 
 ### Use Mycelium MCP when you...
 
-- **Don't know where something lives** — `search("authentication middleware")` finds it by concept
-- **Need structural relationships** — `query_graph("AssembleContext", callers)` returns only real callers, not text matches in docs or comments
-- **Want cross-file traversal** — one `callees` query returns the full call tree with source code, across multiple files
+- **Don't know where something lives** — `explore("authentication middleware")` finds it by concept
+- **Need structural relationships** — `explore("callers of AssembleContext")` returns real callers with relationship annotations, not text matches in docs or comments
+- **Want cross-file traversal** — explore automatically does 2-hop graph expansion, returning the call tree with source code across multiple files
 - **Are exploring unfamiliar code** — semantic search finds related code even when you don't know the right keywords
+- **Have multiple questions** — batch them with `queries: ["question 1", "question 2"]` to minimize round-trips
 
 ### Side-by-side: Same question, different tools
 
 **"Who calls HybridSearch?"**
 
-| Grep | Mycelium `query_graph(callers)` |
+| Grep | Mycelium `explore("callers of HybridSearch")` |
 |---|---|
-| 5 text matches (includes the definition, a markdown doc, and 3 real call sites) | 3 results — only the actual callers, with full source code |
-| Must filter noise manually | Zero noise |
+| 5 text matches (includes the definition, a markdown doc, and 3 real call sites) | 3 results — only the actual callers, with full source code and relationship annotations |
+| Must filter noise manually | Zero noise — graph expansion finds real callers |
 
 **"What does AssembleContext depend on?"**
 
-| Read file | Mycelium `query_graph(callees)` |
+| Read file | Mycelium `explore("AssembleContext dependencies")` |
 |---|---|
-| Read 60 lines, visually trace function calls | 2 results: `HybridSearch` + `assembleFromResults`, both with full source |
+| Read 60 lines, visually trace function calls | Returns `HybridSearch` + `assembleFromResults` with full source, plus 2-hop graph expansion |
 | Need follow-up reads to see cross-file dependencies | Cross-file results included automatically |
 
 **"How does the indexing pipeline work?"**
 
-| Grep for `pipeline\|stage` | Mycelium `search("indexing pipeline stages")` |
+| Grep for `pipeline\|stage` | Mycelium `explore("indexing pipeline stages")` |
 |---|---|
 | Requires knowing the file to search | Finds `IndexProject`, `indexSource`, `triggerIndex` across 3 files |
 | Returns keyword matches in file order | Returns ranked results by conceptual relevance |
@@ -60,12 +61,12 @@ Add a section like this to your project's `CLAUDE.md`:
 ## Mycelium MCP
 
 This project is indexed by Mycelium (project ID: `your-project-id`).
-Use the Mycelium MCP tools for **exploration** — discovering callers/callees
-(`query_graph`), finding code you don't know the location of (`search`),
-and understanding relationships across the codebase. For targeted questions
-where you already know the file paths, prefer direct file reads instead —
-they're faster and less noisy. Use `detect_project` with the cwd to resolve
-the project ID if needed.
+Use the `explore` tool for code discovery — it runs semantic + keyword search,
+expands results via the structural graph (callers, callees, dependencies),
+and returns token-budgeted context with source code in one call. Batch
+multiple questions with `queries: [...]` to minimize round-trips. For targeted
+questions where you already know the file paths, prefer direct file reads
+instead — they're faster and less noisy.
 ```
 
 ### For multi-project setups
@@ -85,37 +86,29 @@ which codebase the question is about.
 
 ## Tool Reference (Quick)
 
-### `search`
+### `explore`
 
-Hybrid semantic + keyword search. Use for discovery.
-
-```
-search("error handling middleware", project_id="my-project")
-search("database connection pool", project_id="my-project", kinds="function,class")
-```
-
-### `query_graph`
-
-Structural traversal. Use for relationships.
+All-in-one code intelligence tool. Runs hybrid search (semantic + keyword), expands results via the structural graph (2-hop: callers, callees, dependencies), deduplicates, ranks, annotates relationships, and returns token-budgeted context with full source code.
 
 ```
-query_graph("HandleLogin", project_id="my-project", query_type="callers")
-query_graph("HandleLogin", project_id="my-project", query_type="callees")
-query_graph("src/auth/login.ts", project_id="my-project", query_type="file")
+explore(query="error handling middleware", project_id="my-project")
+explore(query="authentication flow", path="/Users/you/Code/my-project")
+explore(queries=["who calls HandleLogin", "database connection pool"], project_id="my-project")
 ```
 
-| Query type | Returns |
-|---|---|
-| `callers` | Functions that call this symbol |
-| `callees` | Functions this symbol calls |
-| `importers` | Files/modules that import this symbol |
-| `dependencies` | Outgoing edges (calls, imports, type usage) |
-| `dependents` | Incoming edges (called by, imported by) |
-| `file` | All symbols defined in a file |
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | no* | Natural language search query |
+| `queries` | string[] | no* | Multiple queries to batch in one call |
+| `project_id` | string | no | Colony ID (or use `path` for auto-detection) |
+| `path` | string | no | Directory path for auto-detecting the project |
+| `max_tokens` | number | no | Token budget for the response (default 8000) |
+
+*Provide either `query` or `queries` (or both).
 
 ### `detect_project`
 
-Auto-resolve project ID from a directory path. Useful when you don't want to hardcode the ID.
+Auto-detect which project a directory belongs to. Usually not needed — `explore` accepts a `path` param directly.
 
 ```
 detect_project(path="/Users/you/Code/my-project")
@@ -123,11 +116,11 @@ detect_project(path="/Users/you/Code/my-project")
 
 ### `list_projects`
 
-List all indexed projects. No parameters.
+List all indexed projects with IDs, names, and descriptions. No parameters.
 
 ## Tips
 
-- **Search first, then graph query.** If `query_graph` says "symbol not found", the qualified name might not match exactly. Use `search` to find the correct name, then pass it to `query_graph`.
+- **Batch your questions.** Use `queries: [...]` to ask multiple things in one call instead of making separate explore calls across multiple turns.
 - **Keep the index fresh.** After significant code changes, reindex via the web UI or `POST /projects/{id}/index`. Stale indexes return stale results.
-- **Use `kinds` to filter.** Searching for a function? Add `kinds="function"` to skip class definitions, variables, and type aliases.
-- **Top 3 results include full source.** Mycelium returns complete source code for the top 3 results and signatures only for the rest. If you need full source of a lower-ranked result, use a file read.
+- **Use `path` for auto-detection.** Pass your cwd as `path` instead of hardcoding `project_id` — explore will auto-detect the project.
+- **Top 5 results include full source.** Mycelium returns complete source code for the top 5 results and signatures only for the rest. If you need full source of a lower-ranked result, use a file read.

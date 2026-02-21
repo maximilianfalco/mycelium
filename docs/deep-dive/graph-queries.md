@@ -71,7 +71,7 @@ All structural queries require a node ID. The entry point is `FindNodeByQualifie
 func FindNodeByQualifiedName(ctx, pool, projectID, qualifiedName string) (*NodeResult, error)
 ```
 
-This looks up a node by its qualified name within a project. The MCP `query_graph` tool and the API `/search/structural` endpoint use this to resolve the user's input before running the graph query.
+This looks up a node by its qualified name within a project. The MCP `explore` tool and the API `/search/structural` endpoint use this internally to resolve symbols before running graph queries.
 
 ## Edge Kinds
 

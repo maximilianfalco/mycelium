@@ -40,4 +40,4 @@ If `OPENAI_API_KEY` is empty:
 - **Semantic search** returns 503 Service Unavailable
 - **Structural queries** work normally (no embeddings needed)
 - **Chat** returns 503 Service Unavailable
-- **MCP tools** — `query_graph` and `list_projects` work; `search` returns an error
+- **MCP tools** — `list_projects` and `detect_project` work; `explore` returns an error (requires embeddings)

@@ -29,39 +29,35 @@ That's it. The `.mcp.json` in the project root is already configured:
 
 Claude Code auto-discovers this file when you open the project directory. The startup script (`scripts/mcp.sh`) automatically starts the Postgres Docker container if it's not already running, then launches the MCP server. No need to run `make dev` or `make db` first.
 
-The tools will appear as `mycelium_search`, `mycelium_query_graph`, `mycelium_list_projects`, and `mycelium_detect_project`.
+The tools will appear as `mycelium_explore`, `mycelium_list_projects`, and `mycelium_detect_project`.
 
 ## Tools
 
-### `search`
+### `explore`
 
-Semantic search across indexed code using pgvector embeddings.
+Hybrid search (keyword + semantic) with automatic graph expansion. Searches for symbols, expands results via the code graph (callers, callees, dependencies), and returns token-budgeted context with source code and relationship annotations — all in one call.
 
-| Parameter    | Type   | Required | Description                                      |
-|-------------|--------|----------|--------------------------------------------------|
-| `query`      | string | yes      | Natural language search query                    |
-| `project_id` | string | yes      | Colony ID (use `list_projects` to discover)      |
-| `limit`      | number | no       | Max results (1-100, default 10)                  |
-| `kinds`      | string | no       | Comma-separated filter (e.g. `function,class`)   |
+| Parameter    | Type     | Required | Description                                      |
+|-------------|----------|----------|--------------------------------------------------|
+| `query`      | string   | no*      | Natural language search query                    |
+| `queries`    | string[] | no*      | Multiple queries to batch in one call            |
+| `project_id` | string   | no       | Colony ID (or use `path` for auto-detection)     |
+| `path`       | string   | no       | Directory path for auto-detecting the project    |
+| `max_tokens` | number   | no       | Token budget for the response (default 8000)     |
 
-Returns matching symbols with file paths, signatures, source code, docstrings, and similarity scores.
-
-### `query_graph`
-
-Structural graph traversal — find callers, callees, dependencies, etc.
-
-| Parameter        | Type   | Required | Description                                              |
-|-----------------|--------|----------|----------------------------------------------------------|
-| `qualified_name` | string | yes      | Symbol name (use `search` to discover)                   |
-| `project_id`     | string | yes      | Colony ID                                                |
-| `query_type`     | string | yes      | `callers`, `callees`, `importers`, `dependencies`, `dependents`, or `file` |
-| `limit`          | number | no       | Max results (1-100, default 10)                          |
-
-For `file` queries, pass a file path as `qualified_name` to get all symbols in that file.
+*Provide either `query` or `queries` (or both).
 
 ### `list_projects`
 
 Lists all available colonies with their IDs, names, and descriptions. No parameters.
+
+### `detect_project`
+
+Auto-detects which project a directory belongs to. Usually not needed — `explore` accepts a `path` param directly.
+
+| Parameter | Type   | Required | Description                    |
+|-----------|--------|----------|--------------------------------|
+| `path`    | string | yes      | Absolute directory path to match |
 
 ## Architecture
 

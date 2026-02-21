@@ -14,7 +14,7 @@
 - Indexing works but skips embedding (nodes stored without vectors)
 - Structural graph queries work normally (`callers`, `callees`, `dependencies`, etc.)
 - Semantic/hybrid search and chat are unavailable (return 503)
-- MCP tools `query_graph` and `list_projects` work; `search` does not
+- MCP tools — `list_projects` and `detect_project` work; `explore` returns an error (requires embeddings)
 
 ## Q: How does hybrid search differ from pure vector search?
 
