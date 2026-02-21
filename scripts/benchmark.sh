@@ -116,16 +116,75 @@ run_claude() {
     full_prompt="DO NOT USE MYCELIUM. ${prompt}"
   fi
 
+  local raw="${outfile%.json}.raw.jsonl"
   local exit_code=0
   (cd "$TARGET_DIR" && CLAUDECODE= claude --print \
-    --output-format json \
+    --output-format stream-json \
+    --verbose \
     --dangerously-skip-permissions \
     --max-budget-usd "$BUDGET" \
     --model "$model" \
     --no-session-persistence \
     ${mcp_args[@]+"${mcp_args[@]}"} \
     "$full_prompt" \
-  ) > "$outfile" 2>"${outfile%.json}.err" || exit_code=$?
+  ) > "$raw" 2>"${outfile%.json}.err" || exit_code=$?
+
+  # Post-process: extract the final result message and build a summary JSON
+  python3 -c "
+import json, sys
+
+lines = open('$raw').read().strip().split('\n')
+msgs = []
+for line in lines:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msgs.append(json.loads(line))
+    except:
+        pass
+
+if not msgs:
+    json.dump({'result': 'ERROR', 'error': 'No output produced', 'exit_code': $exit_code}, open('$outfile', 'w'))
+    sys.exit(0)
+
+# Find the final result message (last 'result' type)
+result_msg = None
+for m in reversed(msgs):
+    if m.get('type') == 'result':
+        result_msg = m
+        break
+
+if not result_msg:
+    json.dump({'result': 'ERROR', 'error': 'No result message found', 'exit_code': $exit_code}, open('$outfile', 'w'))
+    sys.exit(0)
+
+# Extract tool usage from assistant messages
+tool_calls = []
+for m in msgs:
+    if m.get('type') == 'assistant' and 'message' in m:
+        for block in m['message'].get('content', []):
+            if block.get('type') == 'tool_use':
+                tool_calls.append({
+                    'tool': block.get('name', ''),
+                    'input_keys': list(block.get('input', {}).keys()),
+                })
+
+# Count tool usage
+tool_counts = {}
+for tc in tool_calls:
+    name = tc['tool']
+    tool_counts[name] = tool_counts.get(name, 0) + 1
+
+# Build output (preserve original fields + add tool tracking)
+out = dict(result_msg)
+out['tool_calls'] = tool_calls
+out['tool_counts'] = tool_counts
+out['tool_call_count'] = len(tool_calls)
+
+json.dump(out, open('$outfile', 'w'), indent=2)
+" 2>>"${outfile%.json}.err"
+
   if [ ! -s "$outfile" ]; then
     echo '{"result":"ERROR","error":"No output produced","exit_code":'"$exit_code"'}' > "$outfile"
   fi
@@ -187,7 +246,19 @@ for model in "${MODELS[@]}"; do
       cost=$(extract_field "$outfile" "total_cost_usd")
       duration=$(extract_field "$outfile" "duration_ms")
       turns=$(extract_field "$outfile" "num_turns")
-      echo "  cost=\$$cost  time=${duration}ms  turns=$turns"
+      tools=$(python3 -c "
+import json
+try:
+    d = json.load(open('$outfile'))
+    tc = d.get('tool_counts', {})
+    if tc:
+        print(' '.join(f'{k}={v}' for k, v in sorted(tc.items())))
+    else:
+        print('none')
+except:
+    print('N/A')
+")
+      echo "  cost=\$$cost  time=${duration}ms  turns=$turns  tools=[$tools]"
     done
   done
 done
