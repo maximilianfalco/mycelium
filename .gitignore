@@ -41,3 +41,9 @@ tmp/
 
 # Docker volumes
 pgdata/
+
+# Benchmark results
+benchmark-results/
+
+# Full benchmark suite (local only, not pushed)
+scripts/bench-suite/
