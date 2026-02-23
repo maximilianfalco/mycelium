@@ -186,6 +186,47 @@ export interface ChangesResponse {
   thresholdExceeded: boolean;
 }
 
+export interface GraphVizNode {
+  id: string;
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  filePath: string;
+  sourceAlias: string;
+  degree: number;
+}
+
+export interface GraphVizEdge {
+  source: string;
+  target: string;
+  kind: string;
+}
+
+export interface GraphVizData {
+  nodes: GraphVizNode[];
+  edges: GraphVizEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    kinds: Record<string, number>;
+  };
+}
+
+export interface GraphNodeDetail {
+  id: string;
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  filePath: string;
+  signature: string;
+  sourceCode: string;
+  docstring: string;
+  sourceAlias: string;
+  callers: number;
+  callees: number;
+  importers: number;
+}
+
 export const api = {
   projects: {
     list: () => request<Project[]>("/projects"),
@@ -366,5 +407,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ filePath }),
       }),
+  },
+
+  graph: {
+    data: (projectId: string) =>
+      request<GraphVizData>(`/projects/${projectId}/graph`),
+    nodeDetail: (projectId: string, nodeId: string) =>
+      request<GraphNodeDetail>(`/projects/${projectId}/graph/node/${nodeId}`),
   },
 };
