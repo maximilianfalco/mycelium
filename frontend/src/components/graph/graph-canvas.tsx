@@ -66,6 +66,18 @@ export function GraphCanvas({
   const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+
+  const neighbors = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const e of edges) {
+      if (!map.has(e.source)) map.set(e.source, new Set());
+      if (!map.has(e.target)) map.set(e.target, new Set());
+      map.get(e.source)!.add(e.target);
+      map.get(e.target)!.add(e.source);
+    }
+    return map;
+  }, [edges]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -93,7 +105,9 @@ export function GraphCanvas({
 
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
-      if (node.id) onNodeClick(String(node.id));
+      const id = String(node.id);
+      setHighlightedNodeId((prev) => (prev === id ? null : id));
+      if (node.id) onNodeClick(id);
     },
     [onNodeClick],
   );
@@ -105,18 +119,26 @@ export function GraphCanvas({
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       const size = Math.sqrt((node.degree ?? 0) + 1) * 2;
-      const isSelected = String(node.id) === selectedNodeId;
+      const nodeId = String(node.id);
+      const isSelected = nodeId === selectedNodeId;
       const isSearchMatch =
         searchLower &&
         (node.qualifiedName ?? "").toLowerCase().includes(searchLower);
-      const isDimmed = searchLower && !isSearchMatch;
+      const isDimmedBySearch = searchLower && !isSearchMatch;
+
+      const hovered = highlightedNodeId;
+      const isDimmedByHover =
+        hovered &&
+        hovered !== nodeId &&
+        !neighbors.get(hovered)?.has(nodeId);
+      const isDimmed = isDimmedBySearch || isDimmedByHover;
 
       ctx.beginPath();
       ctx.arc(x, y, size, 0, 2 * Math.PI);
 
       if (isDimmed) {
         ctx.fillStyle = "rgba(100, 100, 100, 0.2)";
-      } else if (isSelected) {
+      } else if (isSelected || hovered === nodeId) {
         ctx.fillStyle = "#ffffff";
       } else if (isSearchMatch) {
         ctx.fillStyle = "#ffffff";
@@ -125,7 +147,7 @@ export function GraphCanvas({
       }
       ctx.fill();
 
-      if (isSelected) {
+      if (isSelected || hovered === nodeId) {
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5 / globalScale;
         ctx.stroke();
@@ -140,7 +162,7 @@ export function GraphCanvas({
         ctx.fillText(node.name ?? "", x, y + size + 2 / globalScale);
       }
     },
-    [selectedNodeId, searchLower],
+    [selectedNodeId, searchLower, neighbors, highlightedNodeId],
   );
 
   const nodePointerAreaPaint = useCallback(
@@ -159,9 +181,16 @@ export function GraphCanvas({
   const linkColor = useCallback(
     (link: GraphLink) => {
       if (searchLower) return "rgba(60, 60, 60, 0.05)";
+      const hovered = highlightedNodeId;
+      if (hovered) {
+        const src = typeof link.source === "object" ? (link.source as GraphNode).id : link.source;
+        const tgt = typeof link.target === "object" ? (link.target as GraphNode).id : link.target;
+        if (src !== hovered && tgt !== hovered) return "rgba(60, 60, 60, 0.03)";
+        return "rgba(255, 255, 255, 0.6)";
+      }
       return EDGE_COLORS[link.kind ?? ""] ?? "rgba(100, 100, 100, 0.08)";
     },
-    [searchLower],
+    [searchLower, highlightedNodeId],
   );
 
   const graphData = useMemo(
@@ -195,7 +224,10 @@ export function GraphCanvas({
         enableNodeDrag={true}
         enablePointerInteraction={true}
         onNodeClick={handleNodeClick}
-        onBackgroundClick={() => onNodeClick("")}
+        onBackgroundClick={() => {
+          setHighlightedNodeId(null);
+          onNodeClick("");
+        }}
       />
     </div>
   );
