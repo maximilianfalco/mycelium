@@ -31,6 +31,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { ConfirmationDialog } from "@/components/ui/confirm-dialog";
 import { CopyIcon } from "lucide-react";
 import { toast } from "sonner";
+import { GraphView } from "@/components/graph/graph-view";
 
 function IndexedAt({ date }: { date: string }) {
   const formatted = new Date(date).toLocaleString();
@@ -680,19 +681,7 @@ export function ProjectDetail({
           />
         )}
 
-        {tab === "graph" && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/icon.svg"
-              alt=""
-              width={64}
-              height={64}
-              className="mb-6"
-            />
-            <p className="text-sm text-muted-foreground">coming soon</p>
-          </div>
-        )}
+        {tab === "graph" && <GraphView projectId={id} />}
       </div>
 
       {viewerFile && (

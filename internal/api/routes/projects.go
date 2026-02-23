@@ -33,6 +33,9 @@ func ProjectRoutes(pool *pgxpool.Pool, cfg *config.Config) chi.Router {
 		r.Get("/sources", listSources(pool))
 		r.Delete("/sources/{sourceID}", removeSource(pool))
 
+		r.Get("/graph", getProjectGraph(pool))
+		r.Get("/graph/node/{nodeId}", getGraphNodeDetail(pool))
+
 		r.Mount("/index", IndexingRoutes(pool, cfg))
 		r.Mount("/chat", ChatRoutes(pool, oaiClient, cfg))
 	})
